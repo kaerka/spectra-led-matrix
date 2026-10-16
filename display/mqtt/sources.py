@@ -1,10 +1,11 @@
-"""MQTT source catalog — maps ecosystem feeds to topic patterns."""
+"""MQTT source catalog — maps caption feeds to topic patterns."""
 
 from __future__ import annotations
 
 from typing import Dict, Iterable, List, Mapping, Optional
 
-# id → label + subscription patterns (used for per-wall routing and UI toggles)
+# id → label + subscription patterns (used for per-wall routing and UI toggles).
+# Add your own ids here (or via inventory mqtt_source_defs) for home-automation feeds.
 SOURCE_CATALOG: Dict[str, Dict[str, object]] = {
     "whisper": {
         "label": "Whisper",
@@ -14,17 +15,9 @@ SOURCE_CATALOG: Dict[str, Dict[str, object]] = {
         "label": "Meshtastic",
         "topics": ["meshtastic/message"],
     },
-    "aether": {
-        "label": "Aether",
-        "topics": ["aether/#"],
-    },
-    "iris": {
-        "label": "Iris",
-        "topics": ["iris/#"],
-    },
-    "nightglass": {
-        "label": "Nightglass",
-        "topics": ["nightglass/#"],
+    "custom": {
+        "label": "Custom",
+        "topics": ["custom/#"],
     },
 }
 

@@ -16,13 +16,16 @@
   failed_when: false
   when: not legacy_world_clock.stat.exists
 
+# Optional: set repo_urls.world_clock in a private inventory override to enable.
 - name: Clone world-clock repo
   ansible.builtin.git:
     repo: "{{ repo_urls.world_clock }}"
     dest: "{{ repo_paths.world_clock }}"
     version: main
     update: true
-  when: not legacy_world_clock.stat.exists
+  when:
+    - not legacy_world_clock.stat.exists
+    - (repo_urls.world_clock | default('')) | length > 0
 
 - name: Set world-clock repo ownership
   ansible.builtin.file:

@@ -1,4 +1,4 @@
-"""Format Iris/Aether/Nightglass ecosystem JSON for matrix display."""
+"""Format common JSON MQTT payloads into a one-line matrix caption."""
 
 from __future__ import annotations
 

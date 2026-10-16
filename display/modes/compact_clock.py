@@ -1,6 +1,6 @@
 """World clock layout for small canvases (one to four 64x64 panels).
 
-The 192x192 walls use spectra_clock from the world-clock repo; this follows the
+Large walls may use an optional companion world-clock checkout; this follows the
 MatrixPortal S3 64x64 design (title, then stacked city label + time blocks) and
 picks the largest bitmap fonts that fit whatever canvas it is given.
 """

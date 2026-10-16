@@ -32,9 +32,7 @@ DEFAULTS: Dict[str, Any] = {
     "topics": [
         "whisper/transcript",
         "meshtastic/message",
-        "aether/#",
-        "iris/#",
-        "nightglass/#",
+        "custom/#",
     ],
     "client_id": "spectra-matrix-controller",
     "idle_seconds": 30,

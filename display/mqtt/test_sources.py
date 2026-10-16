@@ -26,24 +26,24 @@ class TopicMatchTests(unittest.TestCase):
         self.assertFalse(topic_matches("whisper/transcript", "meshtastic/message"))
 
     def test_hash_wildcard(self) -> None:
-        self.assertTrue(topic_matches("aether/#", "aether/status"))
-        self.assertTrue(topic_matches("aether/#", "aether/message"))
-        self.assertFalse(topic_matches("aether/#", "iris/status"))
+        self.assertTrue(topic_matches("custom/#", "custom/status"))
+        self.assertTrue(topic_matches("custom/#", "custom/message"))
+        self.assertFalse(topic_matches("custom/#", "other/status"))
 
     def test_source_for_topic(self) -> None:
         self.assertEqual(source_for_topic("meshtastic/message"), "meshtastic")
-        self.assertEqual(source_for_topic("aether/test"), "aether")
+        self.assertEqual(source_for_topic("custom/test"), "custom")
 
 
 class WallSourcesTests(unittest.TestCase):
     def test_wall_subset(self) -> None:
-        ids = wall_source_ids(["meshtastic/message", "aether/#"])
-        self.assertEqual(ids, ["meshtastic", "aether"])
+        ids = wall_source_ids(["meshtastic/message", "custom/#"])
+        self.assertEqual(ids, ["meshtastic", "custom"])
 
     def test_topics_for_sources(self) -> None:
-        topics = topics_for_sources(["meshtastic", "aether"])
+        topics = topics_for_sources(["meshtastic", "custom"])
         self.assertIn("meshtastic/message", topics)
-        self.assertIn("aether/#", topics)
+        self.assertIn("custom/#", topics)
 
 
 class AcceptTopicTests(unittest.TestCase):
@@ -70,10 +70,10 @@ class AcceptTopicTests(unittest.TestCase):
     def test_allowed(self) -> None:
         self.assertTrue(
             accept_topic(
-                "aether/status",
+                "custom/status",
                 overlay_enabled=True,
-                source_enabled={"aether": True, "meshtastic": False},
-                subscribed_topics=["aether/#", "meshtastic/message"],
+                source_enabled={"custom": True, "meshtastic": False},
+                subscribed_topics=["custom/#", "meshtastic/message"],
             )
         )
 

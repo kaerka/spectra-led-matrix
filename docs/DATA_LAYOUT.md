@@ -12,8 +12,8 @@ Runtime data lives outside the git repo under `/data/spectra` on Spectra hosts
 │   └── controller_id_rsa.pub  # controller pubkey for wall SSH
 ├── repos/
 │   ├── spectra-led-matrix/
-│   ├── world-clock/
-│   ├── whisper-audio-capture/   # controller only
+│   ├── world-clock/             # optional companion (if configured)
+│   ├── whisper-audio-capture/   # optional companion (if configured)
 │   └── rpi-rgb-led-matrix/      # matrix hosts
 ├── media/
 │   ├── gifs/

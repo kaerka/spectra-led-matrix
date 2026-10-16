@@ -1,4 +1,4 @@
-"""World clock mode — spectra_clock (world-clock repo) on the 192x192 walls,
+"""World clock mode — optional large-wall renderer under repos/world-clock,
 the built-in compact layout on smaller canvases."""
 
 from __future__ import annotations

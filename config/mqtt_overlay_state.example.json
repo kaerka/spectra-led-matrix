@@ -3,8 +3,6 @@
   "sources": {
     "whisper": true,
     "meshtastic": true,
-    "aether": true,
-    "iris": true,
-    "nightglass": true
+    "custom": true
   }
 }

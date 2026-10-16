@@ -15,12 +15,14 @@
   changed_when: true
   failed_when: false
 
+# Optional: set repo_urls.whisper_audio_capture in a private inventory override.
 - name: Clone whisper-audio-capture repo
   ansible.builtin.git:
     repo: "{{ repo_urls.whisper_audio_capture }}"
     dest: "{{ repo_paths.whisper_audio_capture }}"
     version: main
     update: true
+  when: (repo_urls.whisper_audio_capture | default('')) | length > 0
 
 - name: Set whisper-audio-capture ownership
   ansible.builtin.file:

@@ -4,8 +4,8 @@ Record from ReSpeaker (Pi5) → forward chunks → transcribe on the offload hos
 (Whisper on the Radxa Q6A's Hexagon NPU, or faster-whisper on CPU) → translate
 → publish to MQTT `whisper/transcript`.
 
-Source repo: [whisper-audio-capture](https://github.com/kaerka/whisper-audio-capture)
-(deployed to `/data/spectra/repos/whisper-audio-capture`).
+Optional capture tree: set `repo_urls.whisper_audio_capture` in inventory and deploy
+under `/data/spectra/repos/whisper-audio-capture`.
 
 ## Services
 

@@ -10,8 +10,9 @@ The **flame** and **lava** display modes adapt the procedural fire effect from P
 Galactic Unicorn MicroPython examples (MIT licensed —  
 https://github.com/pimoroni/unicorn, file `examples/galactic_unicorn/fire_effect.py`).
 
-This project also builds on ideas and rendering code from the
-[world-clock](https://github.com/kaerka/world-clock) repository (MIT).
+Compact world-clock rendering in this repository is original. Large-wall
+world-clock layouts may optionally use a separate companion checkout configured
+via Ansible (`repo_urls.world_clock`).
 
 ## Third-party dependencies (not included in this repository)
 

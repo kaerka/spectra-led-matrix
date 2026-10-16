@@ -5,7 +5,7 @@
   "password": null,
   "tls": false,
   "enabled": true,
-  "topics": {{ (mqtt_wall_sources | default(['whisper', 'meshtastic', 'aether', 'iris', 'nightglass']) | map('extract', mqtt_source_defs) | map(attribute='topics') | flatten | unique | list) | to_json }},
+  "topics": {{ (mqtt_wall_sources | default(['whisper', 'meshtastic', 'custom']) | map('extract', mqtt_source_defs) | map(attribute='topics') | flatten | unique | list) | to_json }},
   "client_id": "spectra-matrix-{{ inventory_hostname }}",
   "idle_seconds": 30,
   "text_color": [255, 255, 255],

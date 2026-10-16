@@ -7,14 +7,22 @@ library of clocks, weather, media, and procedural animations.
 This repository is the **public** Spectra project. Site-specific inventory,
 secrets, and hostnames stay out of git (see [`SECURITY.md`](SECURITY.md)).
 
-## Videos
+## See it in action
 
-Demo clips (fill in once published):
+Procedural modes (nearest-neighbour upscaled from a 128×128 canvas):
+
+![Rainbow, sparkle, lava lamp, and matrix rain previews](docs/previews/gallery.png)
+
+| [Rainbow](docs/previews/rainbow.png) | [Sparkle](docs/previews/sparkle.png) | [Lava lamp](docs/previews/lava_lamp.png) | [Matrix rain](docs/previews/matrix_rain.png) |
+| :---: | :---: | :---: | :---: |
+| Colour bands corner-to-corner | Blinkenlights | Metaball wax | Falling glyphs |
+
+Live demos (fill in once published):
 
 | Video | Link |
 | --- | --- |
 | Spectra dual-wall overview | *[YouTube — coming soon]* <!-- VIDEO_URL_OVERVIEW --> |
-| Procedural modes (rain, rainbow, sparkle, lava lamp) | *[YouTube — coming soon]* <!-- VIDEO_URL_EFFECTS --> |
+| Procedural modes | *[YouTube — coming soon]* <!-- VIDEO_URL_EFFECTS --> |
 | Mini-Spectra Clock | *[YouTube — coming soon]* <!-- VIDEO_URL_MINI --> |
 
 ## Major features
@@ -24,7 +32,7 @@ Demo clips (fill in once published):
 | Mode | What it does |
 | --- | --- |
 | **Weather** | Local forecast, time, humidity; monthly calendar on 192×192 |
-| **World clock** | Multiple time zones ([world-clock](https://github.com/kaerka/world-clock) on large walls; compact BDF layout on small panels) |
+| **World clock** | Multiple time zones (compact BDF layout built-in; optional large-wall renderer via `repo_urls.world_clock`) |
 | **Analog clock** | Face with sweeping second hand |
 | **Game of Life** | Full-panel Conway simulation |
 | **Flame / Lava** | Procedural fire (sparse or dense); colour themes + intensity |
@@ -37,7 +45,7 @@ Demo clips (fill in once published):
 
 ### Overlays & scheduling
 
-- **MQTT overlay** — temporary captions (Whisper, Meshtastic, optional ecosystem topics)
+- **MQTT overlay** — temporary captions (Whisper, Meshtastic, and optional `custom/#` topics)
 - **Custom messages** — 1–3 line scheduled text with live preview sizes
 - **Night dim** — brightness steps by time of day
 
@@ -169,10 +177,25 @@ systemd/            Example service unit
 
 ## Related projects
 
-| Repo | Role |
+| Project | Role |
 | --- | --- |
-| [world-clock](https://github.com/kaerka/world-clock) | World clock rendering on large walls |
-| [rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix) | GPIO driver and `video-viewer` (GPL-2.0+, built locally) |
+| [hzeller/rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix) | GPIO driver and `video-viewer` (GPL-2.0+, built locally) |
+| [ChuckBuilds/ledmatrix-plugins](https://github.com/ChuckBuilds/ledmatrix-plugins) | Community plugin store for the LEDMatrix stack — a good place to share ported animations |
+
+### Contributing animations to LEDMatrix plugins
+
+Spectra modes are plain Python + NumPy/Pillow classes. ChuckBuilds’ store expects
+a different plugin API (`manifest.json`, `manager.py`, size harness) and is
+**GPL-3.0**. Porting rainbow / sparkle / lava lamp / matrix rain there is
+worthwhile for reach, but:
+
+1. Relicense the **ported** plugin code under GPL-3.0 (Spectra itself stays MIT).
+2. Target their size matrix (often 64×32 / 128×64-class panels, not only square 64/192).
+3. Follow [`SUBMISSION.md`](https://github.com/ChuckBuilds/ledmatrix-plugins/blob/main/SUBMISSION.md)
+   (manifest, README screenshots, `plugins.json` entry, CI harness).
+
+We can carve out a small GPL-friendly plugin package from these modes when you’re
+ready to open a PR.
 
 ## License
 
