@@ -17,14 +17,14 @@ Procedural modes (nearest-neighbour upscaled from a 128×128 canvas):
 | :---: | :---: | :---: | :---: |
 | Colour bands corner-to-corner | Blinkenlights | Metaball wax | Falling glyphs |
 
-Live demos (YouTube Shorts):
+Live demos:
 
 | Video | Link |
 | --- | --- |
+| Mini panel → dual wall walkthrough | [Watch](https://youtu.be/w0ZgrCWmPL4) |
 | Sparkle, matrix rain & lava lamp | [Short](https://youtube.com/shorts/bsfv5x9dP8c) |
 | Sparkle & lava lamp | [Short](https://youtube.com/shorts/wsMO1CcpWjs) |
 | Rainbow & matrix rain | [Short](https://youtube.com/shorts/Oy9IgHbI8sE) |
-| Mini-Spectra Clock | *[YouTube — coming soon]* <!-- VIDEO_URL_MINI --> |
 
 Hardware in the Shorts: **P2.5** 64×64 panels in groups of **9** (3 chains × 3) per
 wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
