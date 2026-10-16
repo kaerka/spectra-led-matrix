@@ -23,6 +23,7 @@ Live demos (YouTube Shorts):
 | --- | --- |
 | Sparkle, matrix rain & lava lamp | [Short](https://youtube.com/shorts/bsfv5x9dP8c) |
 | Sparkle & lava lamp | [Short](https://youtube.com/shorts/wsMO1CcpWjs) |
+| Rainbow & matrix rain | [Short](https://youtube.com/shorts/Oy9IgHbI8sE) |
 | Mini-Spectra Clock | *[YouTube — coming soon]* <!-- VIDEO_URL_MINI --> |
 
 Hardware in the Shorts: **P2.5** 64×64 panels in groups of **9** (3 chains × 3) per
