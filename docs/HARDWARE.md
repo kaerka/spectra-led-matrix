@@ -62,16 +62,17 @@ See [`bridges/whisper/README.md`](../bridges/whisper/README.md).
 
 ## Power
 
-| Supply | Typical load |
+| Supply / path | Typical load |
 |--------|----------------|
-| Large 5 V high-current PSU (e.g. 60 A / 300 W class) | All panels (+ optionally the Pi 4s) |
-| Official Pi 5 PSU | Controller only |
-| Distribution blocks / bus bars | Split 5 V into short, thick feeds per chain |
+| Large 5 V high-current PSU → **fused** DIN-rail strip (5 A fuses) | Panel chains (both walls) |
+| Same 5 V PSU → **rocker-switch** distribution strip | Pi 4 matrix hosts (per-board on/off) |
+| 5 V USB-PD brick | Pi 5 controller (not on the panel PSU) |
+| 12 V barrel PSU | GbE switch |
+| 12 V USB-PD | Optional Radxa Q6A offload host |
 
-Night-dim schedules and per-mode output gain (lava, rainbow, lava lamp) keep
-average draw manageable. Prefer short, thick 5 V feeds to the panels — see
-[`PARTS_AND_COSTS.md`](PARTS_AND_COSTS.md) for the distribution and HUB75 cabling
-lines.
+Night-dim schedules and per-mode output gain keep average LED draw manageable.
+Prefer short, thick 5 V feeds to the panels — SKUs and wiring notes in
+[`PARTS_AND_COSTS.md`](PARTS_AND_COSTS.md).
 
 ## Mounting (compute)
 

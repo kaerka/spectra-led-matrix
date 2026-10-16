@@ -13,8 +13,8 @@ See also [`HARDWARE.md`](HARDWARE.md).
 | Category | Qty | Documented | Notes |
 | --- | ---: | ---: | --- |
 | [64×64 RGB panels](#led-panels-adafruit-3649) | 18 | **~$989** | $54.95 ea (2023) |
-| [5 V 300 W display PSU](#display-power) | 1 | **~$26** | Panels (+ optionally Pi 4s) |
-| [Power distribution](#power-distribution) | — | TBD | Blocks / bus bars / heavy 5 V cabling |
+| [5 V 300 W display PSU](#display-power) | 1 | **~$26** | Panels + Pi 4s (via distro strips) |
+| [Power distribution](#power-distribution-reference-build) | kit | **~$63+** | Fused panel strip + switched Pi strip; 12 V / PD bricks separate |
 | MeshToad V3 (Meshtastic USB) | 1 | **~$45** | Optional |
 | Electrodragon drivers | 2 | **~$16** | + shipping |
 | [HUB75 custom cabling](#hub75-custom-cabling) | kit | **~$37** | IDC + ribbon + crimp tool (2026 cart) |
@@ -54,33 +54,40 @@ Notes from [Adafruit 3649](https://www.adafruit.com/product/3649):
 
 ## Display power
 
-One high-current **5 V / 60 A / 300 W** supply can feed both walls. Example unit
-used in the reference build: [SHNITPWR 5 V 60 A](https://www.amazon.com/dp/B07TXWFSZ9)
-(since discontinued — any reputable 5 V high-current supply with adequate
-headroom works).
+One high-current **5 V / 60 A / 300 W** supply feeds the **LED panels and the
+Pi 4 matrix hosts** (not the Pi 5). Example unit used in the reference build:
+[SHNITPWR 5 V 60 A](https://www.amazon.com/dp/B07TXWFSZ9) (since discontinued —
+any reputable 5 V high-current supply with adequate headroom works).
 
-| Channel | Typical load |
-| --- | --- |
-| Primary | All panels |
-| Secondary | Both Pi 4 matrix hosts |
+Night-dim and mode output gains lower average LED draw.
 
-Keep the **Pi 5 on its own official PSU**. Night-dim and mode output gains lower
-average LED draw.
+### Power distribution (reference build)
 
-### Power distribution
+The big 5 V supply lands on **two distribution modules**, then fans out:
 
-The big PSU alone is not enough — you need a **distribution layer** between the
-supply and the panel chains (and optionally the Pi 4s):
+| Path | Hardware | Load |
+| --- | --- | --- |
+| **Panels** | DIN-rail **12-channel fused** DC strip, **5 A** blade fuses per used channel | HUB75 panel chains (both walls) |
+| **Pi 4s** | **6-channel rocker-switch** DC strip (per-channel on/off + LED) | Upper + lower matrix Pis |
+| **Pi 5** | Official / high-amp **5 V USB-PD** brick | Controller only — needs PD; not taken from the panel PSU |
+| **GbE switch** | Dedicated **12 V** barrel-jack PSU | Linksys/Cisco-class 5-port switch |
+| **Radxa Q6A** | Dedicated **12 V USB-PD** supply | Whisper offload host |
 
-| Item | Qty | Notes |
-| --- | ---: | --- |
-| Terminal / distribution blocks (or bus bars) | TBD | Split 5 V into short, thick feeds per chain / wall |
-| Heavy-gauge 5 V / GND cable | TBD | Keep runs short; panels want low voltage drop |
-| Ring / fork terminals, ferrules | TBD | Cleaner landing on PSU and blocks |
-| Fusing / breakers (optional) | TBD | Per wall or per channel |
+Example modules (OONO / CZH-Labs class, 2026 prices):
 
-Exact SKUs vary by how the frame is wired; treat this as a required BOM line even
-when the PSU itself is already listed.
+| Item | Qty | Unit | Notes |
+| --- | ---: | ---: | --- |
+| 12-ch DIN-rail fuse distribution strip (0–32 V, 30 A in) | 1 | ~$38 | ATO/ATC blade fuses; run **5 A** on panel feeds (stock often ships 3 A) |
+| 6-ch rocker-switch DC distribution strip (0–50 V, 30 A in) | 1 | ~$25 | Screw-mount or DIN-rail variant; one switch per Pi 4 |
+| Heavy-gauge 5 V / GND cable + ferrules | TBD | TBD | Short runs from PSU → strips → loads |
+| 5 V USB-PD PSU (Pi 5, 27 W class) | 1 | ~$15 | Separate from panel PSU |
+| 12 V PSU (GbE switch) | 1 | TBD | Match the switch’s barrel jack |
+| 12 V USB-PD PSU (Q6A) | 1 | TBD | Board-specific PD adapter |
+
+**Caveats:** the fused strip’s **total input is typically ~30 A**, so it is a
+distribution / protection layer — not a substitute for sizing the main 5 V
+supply to the panels. Do not put the Pi 5 on the panel PSU if you need USB-PD
+negotiation and the headroom the official brick provides.
 
 ---
 
