@@ -66,9 +66,18 @@ See [`bridges/whisper/README.md`](../bridges/whisper/README.md).
 |--------|----------------|
 | Large 5 V high-current PSU (e.g. 60 A / 300 W class) | All panels (+ optionally the Pi 4s) |
 | Official Pi 5 PSU | Controller only |
+| Distribution blocks / bus bars | Split 5 V into short, thick feeds per chain |
 
 Night-dim schedules and per-mode output gain (lava, rainbow, lava lamp) keep
-average draw manageable. Prefer short, thick 5 V feeds to the panels.
+average draw manageable. Prefer short, thick 5 V feeds to the panels — see
+[`PARTS_AND_COSTS.md`](PARTS_AND_COSTS.md) for the distribution and HUB75 cabling
+lines.
+
+## Mounting (compute)
+
+The Pi 4 walls, Pi 5 controller, and optional Q6A sit on **DIN rail** with
+per-board clip brackets (four brackets in the reference build). Panel frames are
+separate (2020 extrusion, etc.).
 
 ## Mini-Spectra Clock (standalone)
 
