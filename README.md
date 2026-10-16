@@ -17,7 +17,7 @@ Procedural modes (nearest-neighbour upscaled from a 128×128 canvas):
 | :---: | :---: | :---: | :---: |
 | Colour bands corner-to-corner | Blinkenlights | Metaball wax | Falling glyphs |
 
-Live demos:
+Live demos — playlist: **[LED Matrixes](https://www.youtube.com/playlist?list=PLIMpj8aEYNbE)**
 
 | Video | Link |
 | --- | --- |
