@@ -17,12 +17,12 @@ Procedural modes (nearest-neighbour upscaled from a 128×128 canvas):
 | :---: | :---: | :---: | :---: |
 | Colour bands corner-to-corner | Blinkenlights | Metaball wax | Falling glyphs |
 
-Live demos ([YouTube Shorts](https://youtube.com/shorts/bsfv5x9dP8c)):
+Live demos (YouTube Shorts):
 
 | Video | Link |
 | --- | --- |
-| Sparkle, matrix rain & lava lamp (dual wall) | [Short](https://youtube.com/shorts/bsfv5x9dP8c) |
-| More wall / mode clips | *[add Short URLs here]* <!-- VIDEO_URL_MORE --> |
+| Sparkle, matrix rain & lava lamp | [Short](https://youtube.com/shorts/bsfv5x9dP8c) |
+| Sparkle & lava lamp | [Short](https://youtube.com/shorts/wsMO1CcpWjs) |
 | Mini-Spectra Clock | *[YouTube — coming soon]* <!-- VIDEO_URL_MINI --> |
 
 Hardware in the Shorts: **P2.5** 64×64 panels in groups of **9** (3 chains × 3) per
