@@ -1,0 +1,98 @@
+---
+# gpsd + chrony on Pi5 controller. Replaces systemd-timesyncd only — no NM/eth/wlan changes.
+
+- name: Install gpsd and chrony
+  ansible.builtin.apt:
+    name:
+      - gpsd
+      - gpsd-clients
+      - chrony
+    state: present
+    update_cache: true
+
+- name: Configure gpsd for UART GPS HAT
+  ansible.builtin.template:
+    src: gpsd.j2
+    dest: /etc/default/gpsd
+    mode: "0644"
+  notify: Restart gpsd
+
+- name: Enable and start gpsd
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - gpsd.socket
+    - gpsd.service
+
+- name: Ensure chrony conf.d directory exists
+  ansible.builtin.file:
+    path: /etc/chrony/conf.d
+    state: directory
+    mode: "0755"
+
+- name: Deploy chrony GPS configuration fragment
+  ansible.builtin.template:
+    src: spectra-gps.chrony.j2
+    dest: /etc/chrony/conf.d/spectra-gps.conf
+    mode: "0644"
+  notify: Restart chrony
+
+- name: Remove mis-placed chrony.d fragment if present
+  ansible.builtin.file:
+    path: /etc/chrony/chrony.d/spectra-gps.conf
+    state: absent
+  notify: Restart chrony
+
+- name: Ensure chrony systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/chrony.service.d
+    state: directory
+    mode: "0755"
+
+- name: Ensure chrony starts after gpsd
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/chrony.service.d/after-gpsd.conf
+    mode: "0644"
+    content: |
+      [Unit]
+      After=gpsd.service
+      Wants=gpsd.service
+  notify: Restart chrony
+
+- name: Mask systemd-timesyncd when unit is present
+  ansible.builtin.systemd:
+    name: systemd-timesyncd
+    enabled: false
+    state: stopped
+    masked: true
+  register: timesyncd_off
+  failed_when: false
+  when: chrony_disable_timesyncd | default(true)
+
+- name: Note when systemd-timesyncd is already absent
+  ansible.builtin.debug:
+    msg: systemd-timesyncd not installed; chrony is the sole NTP client
+  when:
+    - chrony_disable_timesyncd | default(true)
+    - timesyncd_off is failed or (timesyncd_off.msg is defined and 'Could not find' in timesyncd_off.msg)
+
+- name: Enable and start chrony
+  ansible.builtin.systemd:
+    name: chrony
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Report chrony sources
+  ansible.builtin.command:
+    cmd: chronyc -n sources
+  register: chrony_sources
+  changed_when: false
+  failed_when: false
+
+- name: Show chrony sources
+  ansible.builtin.debug:
+    var: chrony_sources.stdout_lines

@@ -1,0 +1,8 @@
+# Allow orchestrator UI to toggle Whisper pipeline without a password.
+# Two variants: local deployments run capture+transcribe on the Pi5; offload
+# deployments run capture+forward here (transcribe lives on the offload host).
+Cmnd_Alias SPECTRA_WHISPER_CTL = /usr/bin/systemctl start spectra-whisper-capture.service spectra-whisper-transcribe.service, \
+                                   /usr/bin/systemctl stop spectra-whisper-capture.service spectra-whisper-transcribe.service, \
+                                   /usr/bin/systemctl start spectra-whisper-capture.service spectra-whisper-forward.service, \
+                                   /usr/bin/systemctl stop spectra-whisper-capture.service spectra-whisper-forward.service
+{{ spectra_user }} ALL=(ALL) NOPASSWD: SPECTRA_WHISPER_CTL

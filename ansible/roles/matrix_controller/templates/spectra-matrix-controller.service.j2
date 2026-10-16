@@ -1,0 +1,24 @@
+[Unit]
+Description=Spectra matrix controller (web UI + display modes)
+Documentation=file://{{ repo_paths.spectra_matrix_controller }}/docs/ARCHITECTURE.md
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory={{ repo_paths.spectra_matrix_controller }}
+ExecStart={{ repo_paths.spectra_matrix_controller }}/.venv/bin/python {{ repo_paths.spectra_matrix_controller }}/run.py
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH={{ repo_paths.rpi_rgb_led_matrix }}/bindings/python
+Environment=SPECTRA_DATA_ROOT={{ spectra_data_root }}
+Environment=MATRIX_WEB_HOST=0.0.0.0
+Environment=MATRIX_WEB_PORT={{ matrix_web_port }}
+Restart=on-failure
+RestartSec=5
+ExecStopPost=-/usr/bin/pkill -f {{ repo_paths.rpi_rgb_led_matrix }}/utils/video-viewer
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

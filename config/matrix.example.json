@@ -1,0 +1,10 @@
+{
+  "panel_rows": 64,
+  "panel_cols": 64,
+  "chain_length": 1,
+  "parallel": 1,
+  "hardware_mapping": "adafruit-hat",
+  "pixel_mapper": "",
+  "gpio_slowdown": 4,
+  "max_brightness": 90
+}

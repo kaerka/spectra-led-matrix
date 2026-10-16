@@ -1,0 +1,79 @@
+# Remote Whisper inference hosts (e.g. Radxa Q6A "spectra-offload").
+# Bootstrap first: scripts/bootstrap_offload_host.sh (creates spectra user + /data/spectra).
+
+is_whisper_offload: true
+
+whisper_venv: "{{ repo_paths.spectra_matrix_controller }}/bridges/whisper/.venv"
+whisper_bridge_dir: "{{ repo_paths.spectra_matrix_controller }}/bridges/whisper"
+
+# ASR engine: npu = Whisper small (w8a16) on the Q6A's Hexagon NPU, ~2s per 10s
+# chunk; needs the proprietary VoiceAI SDK + model staged first (see
+# bridges/whisper/README.md "Deploying the NPU path"). cpu = faster-whisper.
+whisper_offload_engine: npu
+
+# faster-whisper model, used only when whisper_offload_engine is cpu.
+# small ≈ 10s/10s chunk on Q6A CPU; base ≈ 4s/10s chunk.
+whisper_offload_model: small
+
+# Transcribe/translate tuning (mirrors controller whisper_pipeline defaults)
+whisper_language: auto
+# ct2 is required with the npu engine: the quantised NPU model returns nothing
+# for Whisper's own translate task. With cpu, "whisper" also works.
+whisper_translate_engine: ct2
+whisper_target_language: en
+whisper_poll_seconds: 1
+
+# CTranslate2 opus-mt pairs to convert ("src-tgt", Helsinki-NLP/opus-mt-<pair>).
+# Whisper auto-detects the language and the bridge picks the matching pair;
+# detected languages with no pair are published untranslated. Each pair is
+# ~80 MB on disk and ~100-150 MB of RAM, loaded the first time it's heard.
+whisper_ct2_pairs:
+  - ru-en
+  - uk-en
+  - pl-en
+  - cs-en
+  - es-en
+  - fr-en
+  - it-en
+  - de-en
+  - nl-en
+  - sv-en
+  - da-en
+  - fi-en
+  - hu-en
+  - tr-en
+  - ar-en
+  - hi-en
+  - zh-en
+  - ja-en
+  - ko-en
+  - vi-en
+  - id-en
+# Languages with no dedicated opus-mt-xx-en model can be served by one
+# multi-source model (same base size and speed); each pair is linked to it.
+# Not needed today; examples:
+#   - model: ROMANCE-en
+#     pairs: [pt-en, ro-en]
+#   - model: sem-en
+#     pairs: [he-en]
+#   - model: grk-en
+#     pairs: [el-en]
+whisper_ct2_shared_models: []
+whisper_ct2_models_dir: "{{ spectra_data_root }}/models/mt"
+whisper_ct2_convert_dir: "{{ spectra_data_root }}/models/.ct2-convert"
+# beam 2 on 2 Cortex-A78 threads measured best: 21.9 BLEU, 0.61s/sentence.
+whisper_ct2_beam_size: 2
+whisper_ct2_intra_threads: 2
+whisper_ct2_buffer_sentences: true
+whisper_ct2_max_hold_seconds: 6.0
+whisper_ct2_max_hold_chars: 400
+whisper_mqtt_ttl: 30
+whisper_text_color: [255, 255, 255]
+whisper_no_speech_threshold: 0.65
+whisper_min_words: 2
+whisper_min_chars: 4
+whisper_max_no_speech_prob: 0.55
+whisper_min_avg_logprob: -0.75
+whisper_translate_skip_logprob: true
+whisper_min_avg_logprob_translate: -2.0
+whisper_max_no_speech_prob_translate: 0.72

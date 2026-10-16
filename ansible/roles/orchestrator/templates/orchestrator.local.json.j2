@@ -1,0 +1,34 @@
+{
+  "host": "0.0.0.0",
+  "port": {{ orchestrator_web_port }},
+  "request_timeout_seconds": {{ orchestrator_request_timeout_seconds }},
+  "matrix_hosts": [
+{% for host in groups['matrix_pis'] | sort %}
+    {
+      "id": "{{ hostvars[host].orchestrator_host_id | default(host | regex_replace('^(matrixpi-|wall-)', '')) }}",
+      "label": "{{ hostvars[host].orchestrator_label | default(host | regex_replace('^(matrixpi-|wall-)', '') | title ~ ' wall') }}",
+      "api_base": "http://{{ hostvars[host]['ansible_host'] }}:{{ matrix_web_port }}"
+    }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ],
+  "mqtt": {
+    "broker": "127.0.0.1",
+    "port": {{ mosquitto_port }},
+    "test_topic": "{{ mqtt_topics.whisper }}"
+  },
+  "offload_hosts": [
+{% for host in groups['whisper_offload'] | default([]) | sort %}
+    {
+      "id": "{{ hostvars[host].orchestrator_host_id | default(host | regex_replace('^spectra-matrix-', '')) }}",
+      "label": "{{ hostvars[host].orchestrator_label | default(host) }}",
+      "host": "{{ hostvars[host]['ansible_host'] }}",
+      "ssh_user": "{{ spectra_user }}",
+      "ssh_key": "{{ controller_ssh_private_key }}.spectra",
+      "transcribe_service": "spectra-whisper-transcribe",
+      "forwarder_service": "spectra-whisper-forward"
+    }{% if not loop.last %},{% endif %}
+
+{% endfor %}
+  ]
+}

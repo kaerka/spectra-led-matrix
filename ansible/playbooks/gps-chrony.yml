@@ -1,0 +1,8 @@
+---
+# Pi5: gpsd + chrony (GPS time); disables systemd-timesyncd. Does not change wlan/eth.
+- name: Configure GPS-backed chrony on controller
+  hosts: controller
+  become: true
+  roles:
+    - gps_hat
+    - gps_chrony

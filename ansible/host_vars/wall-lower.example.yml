@@ -1,0 +1,3 @@
+# Copy to wall-lower.yml (gitignored) for host-specific overrides.
+# orchestrator_label: "Lower wall"
+# orchestrator_host_id: lower

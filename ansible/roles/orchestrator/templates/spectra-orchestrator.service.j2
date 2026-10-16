@@ -1,0 +1,20 @@
+[Unit]
+Description=Spectra Pi5 orchestrator web UI
+Documentation=file://{{ repo_paths.spectra_matrix_controller }}/docs/ORCHESTRATION.md
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ spectra_user }}
+Group={{ spectra_group }}
+WorkingDirectory={{ repo_paths.spectra_matrix_controller }}
+Environment=PYTHONUNBUFFERED=1
+Environment=SPECTRA_DATA_ROOT={{ spectra_data_root }}
+Environment=SPECTRA_ORCHESTRATOR_CONFIG={{ spectra_data_root }}/config/orchestrator.local.json
+ExecStart={{ repo_paths.spectra_matrix_controller }}/.venv/bin/python {{ repo_paths.spectra_matrix_controller }}/run_orchestrator.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

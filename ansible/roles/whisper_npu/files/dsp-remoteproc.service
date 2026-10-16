@@ -1,0 +1,15 @@
+[Unit]
+Description=Boot the Hexagon compute DSP (CDSP) for FastRPC/NPU
+After=systemd-modules-load.service local-fs.target
+Before=cdsprpcd.service adsprpcd.service sdsprpcd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Radxa's setup-dsp.sh repoints /usr/lib/dsp at this board's DSP payload.
+ExecStartPre=-/usr/libexec/fastrpc/setup-dsp.sh
+ExecStartPre=-/usr/local/sbin/dsp-qnn-aliases.sh
+ExecStart=/usr/local/sbin/dsp-remoteproc-up.sh
+
+[Install]
+WantedBy=multi-user.target

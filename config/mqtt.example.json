@@ -1,0 +1,22 @@
+{
+  "broker": "<controller_ip>",
+  "port": 1883,
+  "username": null,
+  "password": null,
+  "tls": false,
+  "enabled": true,
+  "topics": [
+    "whisper/transcript",
+    "meshtastic/message",
+    "aether/#",
+    "iris/#",
+    "nightglass/#"
+  ],
+  "client_id": "spectra-matrix-controller",
+  "idle_seconds": 30,
+  "text_color": [255, 255, 255],
+  "text_font_size": 18,
+  "fps": 15,
+  "scroll_px_per_sec": 18,
+  "max_text_chars": 400
+}

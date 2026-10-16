@@ -1,0 +1,18 @@
+---
+gps_serial_device: ttyAMA10
+gps_baud: 9600
+
+# Networks allowed to query this host as an NTP server (chrony "allow").
+# Override in inventory with your matrix / LAN CIDRs.
+chrony_allow_networks:
+  - 127.0.0.0/8
+  - 10.0.0.0/24
+
+chrony_fallback_pools:
+  - time.google.com
+  - debian.pool.ntp.org
+
+chrony_gps_offset: 0.5
+chrony_gps_delay: 0.2
+
+chrony_disable_timesyncd: true

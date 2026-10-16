@@ -1,0 +1,88 @@
+---
+# Remote Whisper inference host (e.g. Radxa Q6A): receives audio chunks from
+# the Pi5 controller and publishes transcripts to the controller's MQTT broker.
+# Host must be bootstrapped first: scripts/bootstrap_offload_host.sh
+
+- name: Sync spectra-matrix-controller from Pi5 controller
+  ansible.builtin.command:
+    cmd: >-
+      rsync -az --delete --no-owner --no-group --omit-dir-times --itemize-changes
+      -e "ssh -i {{ controller_ssh_private_key }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes"
+      --exclude .git --exclude .venv --exclude __pycache__
+      --exclude bridges/whisper/.venv --exclude bridges/meshtastic/.venv
+      --exclude ansible/inventory/hosts.yml
+      --exclude rpi-rgb-led-matrix
+      {{ controller_sync_src }}/
+      {{ spectra_user }}@{{ hostvars[inventory_hostname]['ansible_host'] }}:{{ repo_paths.spectra_matrix_controller }}/
+  delegate_to: "{{ groups['controller'][0] }}"
+  become: false
+  vars:
+    controller_sync_src: "{{ hostvars[groups['controller'][0]]['repo_paths']['spectra_matrix_controller'] }}"
+  register: whisper_offload_sync
+  changed_when: whisper_offload_sync.stdout_lines | length > 0
+
+# The service only reads its Python at startup, so a code-only deploy would
+# otherwise leave the old bridge running.
+- name: Restart transcribe when bridge code changed
+  ansible.builtin.debug:
+    msg: "bridges/whisper changed; restarting spectra-whisper-transcribe"
+  when: "'bridges/whisper/' in whisper_offload_sync.stdout"
+  changed_when: true
+  notify: Restart spectra-whisper-transcribe
+
+- name: Create whisper bridge venv
+  ansible.builtin.command:
+    cmd: python3 -m venv .venv
+    chdir: "{{ whisper_bridge_dir }}"
+    creates: "{{ whisper_venv }}/bin/python"
+
+- name: Install whisper offload Python requirements
+  ansible.builtin.pip:
+    name:
+      - faster-whisper>=1.0.0
+      - paho-mqtt>=2.0.0
+      - numpy>=1.22
+    virtualenv: "{{ whisper_venv }}"
+    state: present
+
+- name: Set up Whisper on the Hexagon NPU
+  ansible.builtin.include_role:
+    name: whisper_npu
+    # whisper-offload.local.json.j2 reads the role's whisper_npu_* paths.
+    public: true
+  when: whisper_offload_engine == 'npu'
+
+- name: Set up CTranslate2 translation
+  ansible.builtin.include_tasks: ct2.yml
+  when: whisper_translate_engine == 'ct2'
+
+- name: Deploy whisper.local.json
+  ansible.builtin.template:
+    src: whisper-offload.local.json.j2
+    dest: "{{ spectra_data_root }}/config/whisper.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0640"
+  notify: Restart spectra-whisper-transcribe
+
+- name: Install spectra-whisper-transcribe systemd unit
+  ansible.builtin.template:
+    src: spectra-whisper-transcribe.service.j2
+    dest: /etc/systemd/system/spectra-whisper-transcribe.service
+    mode: "0644"
+  notify: Restart spectra-whisper-transcribe
+
+- name: Enable and start spectra-whisper-transcribe
+  ansible.builtin.systemd:
+    name: spectra-whisper-transcribe
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Age out forwarded chunks and transcripts
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/spectra-whisper-offload.conf
+    mode: "0644"
+    content: |
+      e {{ spectra_data_root }}/audio-capture/chunks - - - 2d
+      e {{ spectra_data_root }}/audio-capture/transcripts - - - 14d

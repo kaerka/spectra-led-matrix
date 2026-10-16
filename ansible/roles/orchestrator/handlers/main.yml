@@ -1,0 +1,6 @@
+---
+- name: Restart spectra-orchestrator
+  ansible.builtin.systemd:
+    name: spectra-orchestrator
+    state: restarted
+    daemon_reload: true

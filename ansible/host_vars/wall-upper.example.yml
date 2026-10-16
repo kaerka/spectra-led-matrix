@@ -1,0 +1,3 @@
+# Copy to wall-upper.yml (gitignored) for host-specific overrides.
+# orchestrator_label: "Upper wall"
+# orchestrator_host_id: upper

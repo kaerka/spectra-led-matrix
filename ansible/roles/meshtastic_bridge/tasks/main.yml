@@ -1,0 +1,109 @@
+---
+- name: Map Debian release to Meshtastic apt repo version
+  ansible.builtin.set_fact:
+    meshtastic_deb_ver: "{{ '13' if ansible_distribution_release in ['trixie', 'forky'] else '12' }}"
+
+- name: Install meshtasticd apt prerequisites
+  ansible.builtin.apt:
+    name:
+      - curl
+      - gnupg
+      - python3-venv
+    state: present
+    update_cache: true
+
+- name: Install Meshtastic beta apt key
+  ansible.builtin.shell: |
+    curl -fsSL "https://download.opensuse.org/repositories/network:Meshtastic:beta/Debian_{{ meshtastic_deb_ver }}/Release.key" \
+      | gpg --dearmor -o /etc/apt/trusted.gpg.d/network_Meshtastic_beta.gpg
+  args:
+    creates: /etc/apt/trusted.gpg.d/network_Meshtastic_beta.gpg
+
+- name: Add Meshtastic beta apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/network:Meshtastic:beta.list
+    mode: "0644"
+    content: |
+      deb http://download.opensuse.org/repositories/network:/Meshtastic:/beta/Debian_{{ meshtastic_deb_ver }}/ /
+
+- name: Install meshtasticd
+  ansible.builtin.apt:
+    name: meshtasticd
+    state: present
+    update_cache: true
+
+- name: Install MeshToad preset when packaged
+  ansible.builtin.copy:
+    src: /etc/meshtasticd/available.d/lora-usb-meshtoad-e22.yaml
+    dest: /etc/meshtasticd/config.d/lora-usb-meshtoad-e22.yaml
+    remote_src: true
+    mode: "0644"
+  failed_when: false
+
+- name: Install MeshToad udev note
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-spectra-meshtoad.rules
+    mode: "0644"
+    content: |
+      # NULLHOP MeshToad V3 — QinHeng CH341 USB (meshtasticd owns the device)
+      SUBSYSTEM=="usb", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="5512", TAG+="meshtoad"
+  notify: Reload udev
+
+- name: Enable and start meshtasticd
+  ansible.builtin.systemd:
+    name: meshtasticd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Create meshtastic bridge venv
+  ansible.builtin.command:
+    cmd: python3 -m venv .venv
+    chdir: "{{ meshtastic_bridge_dir }}"
+    creates: "{{ meshtastic_venv }}/bin/python"
+
+- name: Install meshtastic bridge Python requirements
+  ansible.builtin.pip:
+    requirements: "{{ meshtastic_bridge_dir }}/requirements.txt"
+    virtualenv: "{{ meshtastic_venv }}"
+    state: present
+
+- name: Deploy meshtastic-bridge.local.json
+  ansible.builtin.template:
+    src: meshtastic-bridge.local.json.j2
+    dest: "{{ spectra_data_root }}/config/meshtastic-bridge.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0640"
+  notify: Restart spectra-meshtastic-bridge
+
+- name: Install spectra-meshtastic-bridge systemd unit
+  ansible.builtin.template:
+    src: spectra-meshtastic-bridge.service.j2
+    dest: /etc/systemd/system/spectra-meshtastic-bridge.service
+    mode: "0644"
+  notify: Restart spectra-meshtastic-bridge
+
+- name: Enable and start meshtastic bridge
+  ansible.builtin.systemd:
+    name: spectra-meshtastic-bridge
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Configure meshtastic region when CLI is available
+  ansible.builtin.command:
+    cmd: "{{ meshtastic_venv }}/bin/meshtastic --host {{ meshtasticd_host }} --set lora.region {{ meshtastic_region }}"
+  register: mesh_region
+  changed_when: mesh_region.rc == 0
+  failed_when: false
+
+- name: Configure meshtastic node identity when CLI is available
+  ansible.builtin.command:
+    cmd: >-
+      {{ meshtastic_venv }}/bin/meshtastic --host {{ meshtasticd_host }}
+      --set-owner "{{ meshtastic_long_name }}"
+      --set-owner-short "{{ meshtastic_short_name }}"
+  register: mesh_identity
+  changed_when: mesh_identity.rc == 0
+  failed_when: false

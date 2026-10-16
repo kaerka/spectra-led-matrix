@@ -1,0 +1,6 @@
+---
+- name: Restart spectra-matrix-controller
+  ansible.builtin.systemd:
+    name: spectra-matrix-controller
+    state: restarted
+    daemon_reload: true

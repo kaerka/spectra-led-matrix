@@ -1,0 +1,23 @@
+---
+- name: Sync spectra-matrix-controller repo onto Pi5 data path
+  ansible.builtin.command:
+    cmd: >-
+      rsync -az --delete --no-owner --no-group --itemize-changes
+      --exclude .git --exclude .venv --exclude __pycache__
+      --exclude bridges/whisper/.venv --exclude bridges/meshtastic/.venv
+      --exclude ansible/inventory/hosts.yml
+      {{ local_controller_repo }}/
+      {{ repo_paths.spectra_matrix_controller }}/
+  vars:
+    local_controller_repo: "{{ playbook_dir }}/../.."
+  register: controller_repo_sync
+  # "."-prefixed lines are permission/time-only updates, not code changes.
+  changed_when: controller_repo_sync.stdout_lines | select('match', '^[<>ch*]') | list | length > 0
+
+- name: Set controller repo ownership on Pi5
+  ansible.builtin.file:
+    path: "{{ repo_paths.spectra_matrix_controller }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0775"
+    recurse: true

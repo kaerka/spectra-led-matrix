@@ -1,0 +1,20 @@
+---
+# Initial Pi5 setup: spectra user, /data/spectra, ansible deps.
+# Run once as an admin user (e.g. your login user) with sudo:
+#   ansible-playbook playbooks/bootstrap.yml -i inventory/hosts.yml -l controller
+- name: Bootstrap Pi5 controller
+  hosts: controller
+  become: true
+  roles:
+    - spectra_user
+    - data_layout
+
+  tasks:
+    - name: Install Ansible and git
+      ansible.builtin.apt:
+        name:
+          - ansible
+          - git
+          - rsync
+        state: present
+        update_cache: true

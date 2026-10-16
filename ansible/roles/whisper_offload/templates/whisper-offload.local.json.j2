@@ -1,0 +1,46 @@
+{
+  "broker": "{{ mqtt_broker_host }}",
+  "port": 1883,
+  "topic": "{{ mqtt_topics.whisper }}",
+  "chunks_dir": "{{ spectra_data_root }}/audio-capture/chunks",
+  "transcripts_dir": "{{ spectra_data_root }}/audio-capture/transcripts",
+  "engine": "{{ whisper_offload_engine }}",
+  "model": "{{ whisper_offload_model }}",
+  "language": "{{ whisper_language }}",
+  "translate_engine": "{{ whisper_translate_engine }}",
+  "target_language": "{{ whisper_target_language }}",
+  "task": "transcribe",
+  "compute_type": "int8",
+  "mqtt_ttl": {{ whisper_mqtt_ttl }},
+  "text_color": {{ whisper_text_color | to_json }},
+  "poll_seconds": {{ whisper_poll_seconds }},
+  "vad_filter": true,
+  "no_speech_threshold": {{ whisper_no_speech_threshold }},
+  "min_words": {{ whisper_min_words }},
+  "min_chars": {{ whisper_min_chars }},
+  "max_no_speech_prob": {{ whisper_max_no_speech_prob }},
+  "min_avg_logprob": {{ whisper_min_avg_logprob }},
+  "translate_skip_logprob": {{ whisper_translate_skip_logprob | lower }},
+  "min_avg_logprob_translate": {{ whisper_min_avg_logprob_translate }},
+{% if whisper_offload_engine == 'npu' %}
+  "npu": {
+    "binary": "{{ whisper_npu_binary }}",
+    "model_dir": "{{ whisper_npu_model_dir }}",
+    "env_script": "{{ whisper_npu_env_script }}",
+    "timeout_ms": {{ whisper_npu_timeout_ms }},
+    "log_path": "{{ whisper_npu_log_path }}"
+  },
+{% endif %}
+{% if whisper_translate_engine == 'ct2' %}
+  "ct2": {
+    "models_dir": "{{ whisper_ct2_models_dir }}",
+    "beam_size": {{ whisper_ct2_beam_size }},
+    "intra_threads": {{ whisper_ct2_intra_threads }},
+    "compute_type": "int8",
+    "buffer_sentences": {{ whisper_ct2_buffer_sentences | lower }},
+    "max_hold_seconds": {{ whisper_ct2_max_hold_seconds }},
+    "max_hold_chars": {{ whisper_ct2_max_hold_chars }}
+  },
+{% endif %}
+  "max_no_speech_prob_translate": {{ whisper_max_no_speech_prob_translate }}
+}

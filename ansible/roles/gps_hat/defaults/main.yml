@@ -1,0 +1,6 @@
+---
+gps_serial_device: ttyAMA0
+
+# Pi5: GPIO header UART (not ttyAMA10 / debug header). See docs/HARDWARE.md.
+gps_enable_uart0: true
+gps_pps_gpio: 4

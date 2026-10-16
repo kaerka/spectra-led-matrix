@@ -1,0 +1,88 @@
+---
+# CTranslate2 opus-mt translation (translate_engine: ct2).
+#
+# The service venv only needs ctranslate2 + sentencepiece. Converting a model
+# from Hugging Face needs transformers and torch as well, so that happens in a
+# throwaway venv, only for pairs not yet present, and the venv is removed after.
+
+- name: Install CTranslate2 runtime into the whisper venv
+  ansible.builtin.pip:
+    name:
+      - ctranslate2>=4.0
+      - sentencepiece>=0.2.0
+    virtualenv: "{{ whisper_venv }}"
+    virtualenv_command: python3 -m venv
+    state: present
+
+- name: Create CTranslate2 models directory
+  ansible.builtin.file:
+    path: "{{ whisper_ct2_models_dir }}"
+    state: directory
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0755"
+
+# Models to convert: one per dedicated pair plus each shared multi-source model.
+- name: Check which opus-mt models are already converted
+  ansible.builtin.stat:
+    path: "{{ whisper_ct2_models_dir }}/opus-{{ item }}-int8/model.bin"
+  loop: "{{ whisper_ct2_pairs + (whisper_ct2_shared_models | default([]) | map(attribute='model') | list) }}"
+  register: whisper_offload_ct2_models
+
+- name: Select models needing conversion
+  ansible.builtin.set_fact:
+    whisper_offload_ct2_missing: >-
+      {{ whisper_offload_ct2_models.results | rejectattr('stat.exists') | map(attribute='item') | list }}
+
+- name: Convert missing opus-mt pairs
+  when: whisper_offload_ct2_missing | length > 0
+  block:
+    - name: Create throwaway conversion venv
+      ansible.builtin.pip:
+        name:
+          # Versions verified for opus-mt conversion on the Dragon Q6A.
+          - ctranslate2==4.8.2
+          - transformers==5.18.0
+          - sentencepiece
+          - torch
+        virtualenv: "{{ whisper_ct2_convert_dir }}/venv"
+        virtualenv_command: python3 -m venv
+
+    - name: Convert opus-mt model to int8 CTranslate2
+      ansible.builtin.command:
+        cmd: >-
+          {{ whisper_ct2_convert_dir }}/venv/bin/ct2-transformers-converter
+          --model Helsinki-NLP/opus-mt-{{ item }}
+          --output_dir {{ whisper_ct2_models_dir }}/opus-{{ item }}-int8
+          --quantization int8
+          --copy_files source.spm target.spm
+        creates: "{{ whisper_ct2_models_dir }}/opus-{{ item }}-int8/model.bin"
+      environment:
+        HF_HOME: "{{ whisper_ct2_convert_dir }}/hf"
+      loop: "{{ whisper_offload_ct2_missing }}"
+
+    - name: Hand converted models to the service user
+      ansible.builtin.file:
+        path: "{{ whisper_ct2_models_dir }}"
+        owner: "{{ spectra_user }}"
+        group: "{{ spectra_group }}"
+        recurse: true
+  always:
+    - name: Remove conversion venv and download cache
+      ansible.builtin.file:
+        path: "{{ whisper_ct2_convert_dir }}"
+        state: absent
+
+# The bridge looks models up as opus-<src>-<tgt>-int8, so a link per language
+# routes it to the shared model with no bridge configuration.
+- name: Link languages served by a shared model
+  ansible.builtin.file:
+    src: "opus-{{ item.0.model }}-int8"
+    dest: "{{ whisper_ct2_models_dir }}/opus-{{ item.1 }}-int8"
+    state: link
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    follow: false
+  loop: "{{ whisper_ct2_shared_models | default([]) | subelements('pairs') }}"
+  loop_control:
+    label: "{{ item.1 }} -> {{ item.0.model }}"

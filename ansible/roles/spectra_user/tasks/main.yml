@@ -1,0 +1,28 @@
+---
+- name: Include controller SSH key generation (Pi5 only)
+  ansible.builtin.include_tasks: controller_key.yml
+  when: is_controller | default(false)
+
+- name: Create spectra group
+  ansible.builtin.group:
+    name: "{{ spectra_group }}"
+    state: present
+
+- name: Create spectra user
+  ansible.builtin.user:
+    name: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    groups: dialout,gpio,audio,sudo
+    append: true
+    shell: /bin/bash
+    create_home: true
+    home: "/home/{{ spectra_user }}"
+    state: present
+
+- name: Allow spectra passwordless sudo for Ansible-managed commands
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/{{ spectra_user }}"
+    content: |
+      {{ spectra_user }} ALL=(ALL) NOPASSWD:ALL
+    mode: "0440"
+    validate: "visudo -cf %s"

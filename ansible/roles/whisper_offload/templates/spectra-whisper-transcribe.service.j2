@@ -1,0 +1,20 @@
+[Unit]
+Description=Spectra Whisper transcribe + MQTT publish (offload host)
+Documentation=file://{{ repo_paths.spectra_matrix_controller }}/bridges/whisper/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ spectra_user }}
+Group={{ spectra_group }}
+WorkingDirectory={{ whisper_bridge_dir }}
+Environment=PYTHONUNBUFFERED=1
+Environment=SPECTRA_DATA_ROOT={{ spectra_data_root }}
+Environment=SPECTRA_WHISPER_CONFIG={{ spectra_data_root }}/config/whisper.local.json
+ExecStart={{ whisper_venv }}/bin/python {{ whisper_bridge_dir }}/transcribe_watch.py
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

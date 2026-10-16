@@ -1,0 +1,33 @@
+{
+  "host": "0.0.0.0",
+  "port": 8090,
+  "request_timeout_seconds": 5,
+  "matrix_hosts": [
+    {
+      "id": "upper",
+      "label": "Upper wall",
+      "api_base": "http://wall-upper.local:8080"
+    },
+    {
+      "id": "lower",
+      "label": "Lower wall",
+      "api_base": "http://wall-lower.local:8080"
+    }
+  ],
+  "mqtt": {
+    "broker": "127.0.0.1",
+    "port": 1883,
+    "test_topic": "whisper/transcript"
+  },
+  "offload_hosts": [
+    {
+      "id": "offload",
+      "label": "Whisper offload host",
+      "host": "offload.local",
+      "ssh_user": "spectra",
+      "ssh_key": "/data/spectra/config/controller_id_rsa.spectra",
+      "transcribe_service": "spectra-whisper-transcribe",
+      "forwarder_service": "spectra-whisper-forward"
+    }
+  ]
+}

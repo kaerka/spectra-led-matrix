@@ -1,0 +1,67 @@
+# --- Ansible (never commit real inventory or vault) ---
+ansible/inventory/hosts.yml
+ansible/host_vars/wall-upper.yml
+ansible/host_vars/wall-lower.yml
+ansible/host_vars/*/secrets.yml
+ansible/vault/
+.vault_pass
+
+# --- Bridge / MQTT local config ---
+bridges/**/config.local.json
+config/mqtt.local.json
+config/mqtt_overlay_state.json
+config/custom_messages*.json
+config/custom_messages*.tmp
+config/mqtt_purge.json
+
+# --- Secrets / local config (never commit) ---
+config/secrets.local.json
+config/display_state.json
+*.local.json
+*.local.toml
+
+# Keep templates tracked
+!config/*.example.json
+
+# --- Vendored hzeller library (clone separately; has its own git history) ---
+rpi-rgb-led-matrix/
+
+# --- Local work-in-progress / legacy scripts (kept on the Pi, not in GitHub) ---
+WIP/
+wip/
+
+# --- Large media assets (live outside repo) ---
+../matrix-gif-animations/
+../matrix-mp4-animations/
+../matrix-images/
+../matrix-movies/
+../matrix-videos/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# --- Logs / runtime ---
+output.log
+*.log
+
+# --- Generated / local symlinks at repo root ---
+/scaled
+*.gif
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Legacy backups (often already under WIP/) ---
+*.backup
+*.bak
+*.working-*
+ansible/host_vars/matrixpi-upper.yml
+ansible/host_vars/matrixpi-lower.yml

@@ -1,0 +1,12 @@
+{
+  "broker": "127.0.0.1",
+  "port": {{ mosquitto_port }},
+  "topic": "{{ mqtt_topics.meshtastic }}",
+  "meshtasticd_host": "{{ meshtasticd_host }}",
+  "meshtasticd_port": {{ meshtasticd_port }},
+  "connect_timeout": 15,
+  "retry_seconds": 30,
+  "mqtt_ttl": {{ meshtastic_mqtt_ttl }},
+  "text_color": {{ meshtastic_text_color | to_json }},
+  "prefix_sender": true
+}

@@ -1,0 +1,28 @@
+---
+# Whisper on the QCS6490 Hexagon NPU (Radxa Dragon Q6A). Applied by the
+# whisper_offload role when whisper_offload_engine is "npu".
+
+# Proprietary Qualcomm inputs, copied onto the host by the operator; they cannot
+# live in git. See bridges/whisper/README.md "Deploying the NPU path".
+whisper_npu_vendor_dir: "{{ spectra_data_root }}/vendor"
+whisper_npu_sdk_dir: "{{ whisper_npu_vendor_dir }}/voiceai_asr/2.3.0.0/whisper_sdk"
+whisper_npu_model_dir: "{{ whisper_npu_vendor_dir }}/whisper_models/ai_hub_small_quantized"
+
+# QNN host libraries (libQnnHtp, libQnnHtpV68Stub, libQnnSystem, ...), unpacked
+# from the qairt-libs .deb rather than installed: installing it pulls in
+# Canonical's qcom-fastrpc1 and removes Radxa's fastrpc, which breaks FastRPC.
+whisper_npu_qairt_dir: "{{ spectra_data_root }}/opt/qairt-libs"
+
+# Built helper and its environment script.
+whisper_npu_prefix: "{{ spectra_data_root }}/opt/whisper-npu-host"
+whisper_npu_binary: "{{ whisper_npu_prefix }}/bin/whisper-npu-host"
+whisper_npu_env_script: "{{ whisper_npu_prefix }}/env.sh"
+whisper_npu_log_path: "{{ spectra_data_root }}/logs/whisper-npu-host.log"
+whisper_npu_timeout_ms: 60000
+
+# Radxa's per-board DSP payload; /usr/lib/dsp is a symlink to it (setup-dsp.sh).
+whisper_npu_board_dsp_dir: /usr/share/qcom/qcs6490/radxa/dragon-q6a/dsp/cdsp
+# QNN HTP V68 skels ship in qairt-dsp-binaries under a different board's path.
+whisper_npu_qnn_skel_src: /usr/share/qcom/qcm6490/Thundercomm/RB3gen2/dsp/cdsp
+
+whisper_npu_overlay_name: qcs6490-radxa-dragon-q6a-fastrpc-dma

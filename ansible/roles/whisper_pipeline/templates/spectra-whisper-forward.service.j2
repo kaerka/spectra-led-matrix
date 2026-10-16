@@ -1,0 +1,20 @@
+[Unit]
+Description=Spectra audio chunk forwarder (Pi5 -> whisper offload host)
+Documentation=file://{{ repo_paths.spectra_matrix_controller }}/bridges/whisper/README.md
+After=network-online.target spectra-whisper-capture.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ spectra_user }}
+Group={{ spectra_group }}
+Environment=SPECTRA_CHUNKS_DIR={{ whisper_capture_outdir }}
+Environment=SPECTRA_FORWARD_REMOTE={{ spectra_user }}@{{ hostvars[groups['whisper_offload'][0]]['ansible_host'] }}
+Environment=SPECTRA_FORWARD_DIR={{ spectra_data_root }}/audio-capture/chunks
+Environment=SPECTRA_FORWARD_KEY={{ controller_ssh_private_key }}.spectra
+ExecStart=/bin/bash {{ repo_paths.spectra_matrix_controller }}/bridges/whisper/forward_chunks.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,62 @@
+# Non-secret shared variables. Site-specific secrets go in Ansible vault
+# or gitignored host_vars — never commit real IPs, keys, or hostnames here.
+
+spectra_data_root: /data/spectra
+spectra_user: spectra
+spectra_group: spectra
+
+repo_urls:
+  spectra_matrix_controller: https://github.com/kaerka/spectra-led-matrix.git
+  world_clock: https://github.com/kaerka/world-clock.git
+  whisper_audio_capture: https://github.com/kaerka/whisper-audio-capture.git
+  rpi_rgb_led_matrix: https://github.com/hzeller/rpi-rgb-led-matrix.git
+
+repo_paths:
+  spectra_matrix_controller: "{{ spectra_data_root }}/repos/spectra-led-matrix"
+  world_clock: "{{ spectra_data_root }}/repos/world-clock"
+  whisper_audio_capture: "{{ spectra_data_root }}/repos/whisper-audio-capture"
+  rpi_rgb_led_matrix: "{{ spectra_data_root }}/repos/rpi-rgb-led-matrix"
+
+matrix_web_port: 8080
+orchestrator_web_port: 8090
+
+# Pi5 → Pi4 deploy push (bootstrap-pi4 installs the matching public key for spectra@)
+controller_ssh_private_key: "{{ spectra_data_root }}/config/controller_id_rsa"
+
+mqtt_topics:
+  whisper: whisper/transcript
+  meshtastic: meshtastic/message
+  ecosystem:
+    - aether/#
+    - iris/#
+    - nightglass/#
+
+# Per-wall MQTT routing: which feeds this matrix host subscribes to (override per host in hosts.yml)
+mqtt_source_defs:
+  whisper:
+    label: Whisper
+    topics:
+      - whisper/transcript
+  meshtastic:
+    label: Meshtastic
+    topics:
+      - meshtastic/message
+  aether:
+    label: Aether
+    topics:
+      - aether/#
+  iris:
+    label: Iris
+    topics:
+      - iris/#
+  nightglass:
+    label: Nightglass
+    topics:
+      - nightglass/#
+
+mqtt_wall_sources:
+  - whisper
+  - meshtastic
+  - aether
+  - iris
+  - nightglass

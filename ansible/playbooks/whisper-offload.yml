@@ -1,0 +1,60 @@
+---
+# Deploy remote Whisper inference (offload) hosts and enable chunk forwarding
+# from the Pi5 controller.
+#
+#   ansible-playbook playbooks/whisper-offload.yml -i inventory/hosts.yml
+#
+# Prereq (once, on the new host):
+#   scp scripts/bootstrap_offload_host.sh <admin>@<host>:/tmp/
+#   ssh <admin>@<host> sudo bash /tmp/bootstrap_offload_host.sh "$(cat /data/spectra/config/controller_id_rsa.pub)"
+#
+# With whisper_offload_engine: npu (the default for this group), also stage the
+# proprietary Qualcomm VoiceAI SDK and Whisper model under /data/spectra/vendor
+# first; the whisper_npu role stops with a list of anything missing. See
+# bridges/whisper/README.md "Deploying the NPU path".
+- name: Refresh controller repo on Pi5 (rsync source for offload deploy)
+  hosts: controller
+  tasks:
+    - ansible.builtin.import_role:
+        name: controller_repo
+
+- name: Deploy Whisper offload hosts
+  hosts: whisper_offload
+  become: true
+  roles:
+    - whisper_offload
+
+- name: Enable chunk forwarding on controller
+  hosts: controller
+  become: true
+  tasks:
+    # The deploy key is 0640 (group-readable for login-user deploys); ssh
+    # refuses group-readable keys for their owner, so give the forwarder
+    # (runs as spectra) an owner-only copy.
+    - name: Create owner-only deploy key copy for forwarder
+      ansible.builtin.copy:
+        src: "{{ controller_ssh_private_key }}"
+        dest: "{{ controller_ssh_private_key }}.spectra"
+        remote_src: true
+        owner: "{{ spectra_user }}"
+        group: "{{ spectra_group }}"
+        mode: "0600"
+
+    - name: Install spectra-whisper-forward systemd unit
+      ansible.builtin.template:
+        src: ../roles/whisper_pipeline/templates/spectra-whisper-forward.service.j2
+        dest: /etc/systemd/system/spectra-whisper-forward.service
+        mode: "0644"
+
+    - name: Disable local transcribe (offload host owns whisper/transcript)
+      ansible.builtin.systemd:
+        name: spectra-whisper-transcribe
+        enabled: false
+        state: stopped
+
+    - name: Enable and start chunk forwarding
+      ansible.builtin.systemd:
+        name: spectra-whisper-forward
+        enabled: true
+        state: started
+        daemon_reload: true

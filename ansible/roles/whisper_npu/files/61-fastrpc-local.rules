@@ -1,0 +1,7 @@
+# Radxa's 60-fastrpc.rules assigns root:fastrpc 0640 to the non-secure FastRPC
+# nodes but leaves the *-secure nodes at root:root 0600. libcdsprpc probes the
+# secure node before the non-secure one; on EACCES it does not fall back cleanly
+# and the caller segfaults. Grant the fastrpc group the same read access.
+ACTION=="add", SUBSYSTEM=="misc", KERNEL=="fastrpc-cdsp-secure",  OWNER="root", GROUP="fastrpc", MODE="0640"
+ACTION=="add", SUBSYSTEM=="misc", KERNEL=="fastrpc-adsp-secure",  OWNER="root", GROUP="fastrpc", MODE="0640"
+ACTION=="add", SUBSYSTEM=="misc", KERNEL=="fastrpc-cdsp1-secure", OWNER="root", GROUP="fastrpc", MODE="0640"

@@ -1,0 +1,20 @@
+---
+- name: Restart cdsprpcd
+  ansible.builtin.systemd:
+    name: cdsprpcd
+    state: restarted
+    daemon_reload: true
+
+- name: Reload udev for fastrpc
+  ansible.builtin.shell: >-
+    udevadm control --reload &&
+    udevadm trigger --subsystem-match=misc --action=add &&
+    udevadm settle
+  changed_when: true
+
+# Also defined by whisper_offload; this copy lets whisper_npu run on its own.
+- name: Restart spectra-whisper-transcribe
+  ansible.builtin.systemd:
+    name: spectra-whisper-transcribe
+    state: restarted
+    daemon_reload: true

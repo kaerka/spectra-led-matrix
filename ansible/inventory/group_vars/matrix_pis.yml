@@ -1,0 +1,16 @@
+# Pi4 matrix display hosts
+
+is_matrix_pi: true
+
+rgbmatrix_hardware_mapping: regular
+rgbmatrix_rows: 64
+rgbmatrix_cols: 64
+rgbmatrix_chain_length: 3
+rgbmatrix_parallel: 3
+rgbmatrix_pixel_mapper: "Rotate:270"
+rgbmatrix_gpio_slowdown: 5
+
+legacy_services_to_disable:
+  - spectra-clock.service
+  - worldclock.service
+  - mqtt-display.service

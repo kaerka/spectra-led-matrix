@@ -1,0 +1,23 @@
+---
+# Create spectra user on Pi4 matrix hosts and deploy controller SSH key.
+# First run uses bootstrap_user (pi or your login user); subsequent runs use spectra.
+#
+#   ansible-playbook playbooks/bootstrap-pi4.yml \
+#     -i inventory/hosts.yml \
+#     -e ansible_user="$USER"
+- name: Bootstrap Pi4 matrix hosts
+  hosts: matrix_pis
+  become: true
+  vars:
+    controller_ssh_pubkey: "{{ lookup('file', spectra_data_root + '/config/controller_id_rsa.pub', errors='ignore') | default('', true) }}"
+  roles:
+    - spectra_user
+    - data_layout
+
+  tasks:
+    - name: Install controller SSH public key for spectra user
+      ansible.builtin.authorized_key:
+        user: "{{ spectra_user }}"
+        key: "{{ controller_ssh_pubkey }}"
+        state: present
+      when: controller_ssh_pubkey | length > 0

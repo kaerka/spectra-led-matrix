@@ -1,0 +1,111 @@
+---
+# Read-only health verification (no config changes).
+- name: Spectra stack health checks
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Check spectra-matrix-controller service (matrix Pis)
+      ansible.builtin.command: systemctl is-active spectra-matrix-controller
+      register: matrix_svc
+      changed_when: false
+      failed_when: false
+      when: is_matrix_pi | default(false)
+
+    - name: Report matrix controller status
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: spectra-matrix-controller={{ matrix_svc.stdout | default('n/a') }}"
+      when: is_matrix_pi | default(false)
+
+    - name: Probe matrix web API
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ matrix_web_port }}/api/state"
+        return_content: true
+      register: api_state
+      failed_when: false
+      when: is_matrix_pi | default(false)
+
+    - name: Check Mosquitto (controller)
+      ansible.builtin.command: systemctl is-active mosquitto
+      register: mosquitto_svc
+      changed_when: false
+      failed_when: false
+      when: is_controller | default(false)
+
+    - name: Report Mosquitto status
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: mosquitto={{ mosquitto_svc.stdout | default('n/a') }}"
+      when: is_controller | default(false)
+
+    - name: Check whisper capture service (controller)
+      ansible.builtin.command: systemctl is-active spectra-whisper-capture
+      register: whisper_capture_svc
+      changed_when: false
+      failed_when: false
+      when: is_controller | default(false)
+
+    - name: Check whisper transcribe service (controller)
+      ansible.builtin.command: systemctl is-active spectra-whisper-transcribe
+      register: whisper_transcribe_svc
+      changed_when: false
+      failed_when: false
+      when: is_controller | default(false)
+
+    - name: Report whisper pipeline status
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: whisper-capture={{ whisper_capture_svc.stdout | default('n/a') }},
+          whisper-transcribe={{ whisper_transcribe_svc.stdout | default('n/a') }}
+      when: is_controller | default(false)
+
+    - name: Check meshtasticd (controller)
+      ansible.builtin.command: systemctl is-active meshtasticd
+      register: meshtasticd_svc
+      changed_when: false
+      failed_when: false
+      when: is_controller | default(false)
+
+    - name: Check meshtastic bridge (controller)
+      ansible.builtin.command: systemctl is-active spectra-meshtastic-bridge
+      register: meshtastic_bridge_svc
+      changed_when: false
+      failed_when: false
+      when: is_controller | default(false)
+
+    - name: Report meshtastic status
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: meshtasticd={{ meshtasticd_svc.stdout | default('n/a') }},
+          meshtastic-bridge={{ meshtastic_bridge_svc.stdout | default('n/a') }}
+      when: is_controller | default(false)
+
+    - name: Check orchestrator service (controller)
+      ansible.builtin.command: systemctl is-active spectra-orchestrator
+      register: orchestrator_svc
+      changed_when: false
+      failed_when: false
+      when: is_controller | default(false)
+
+    - name: Probe orchestrator web API
+      ansible.builtin.uri:
+        url: "http://127.0.0.1:{{ orchestrator_web_port }}/api/health"
+        return_content: true
+      register: orchestrator_api
+      failed_when: false
+      when: is_controller | default(false)
+
+    - name: Report orchestrator status
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: orchestrator={{ orchestrator_svc.stdout | default('n/a') }},
+          api={{ orchestrator_api.status | default('n/a') }}
+      when: is_controller | default(false)
+
+    - name: Check /data free space
+      ansible.builtin.shell: df -h {{ spectra_data_root }} | tail -1
+      register: data_df
+      changed_when: false
+      failed_when: false
+
+    - name: Report data partition
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }}: {{ data_df.stdout | default('data path missing') }}"

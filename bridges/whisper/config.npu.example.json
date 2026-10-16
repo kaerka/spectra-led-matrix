@@ -1,0 +1,37 @@
+{
+  "broker": "controller.local",
+  "port": 1883,
+  "topic": "whisper/transcript",
+  "chunks_dir": "/data/spectra/audio-capture/chunks",
+  "transcripts_dir": "/data/spectra/audio-capture/transcripts",
+  "engine": "npu",
+  "language": "ru",
+  "source_language": "ru",
+  "translate_engine": "ct2",
+  "target_language": "en",
+  "mqtt_ttl": 30,
+  "text_color": [
+    255,
+    255,
+    255
+  ],
+  "poll_seconds": 1,
+  "min_words": 2,
+  "min_chars": 4,
+  "npu": {
+    "binary": "/data/spectra/opt/whisper-npu-host/bin/whisper-npu-host",
+    "model_dir": "/data/spectra/vendor/whisper_models/ai_hub_small_quantized",
+    "env_script": "/data/spectra/opt/whisper-npu-host/env.sh",
+    "timeout_ms": 60000,
+    "log_path": "/data/spectra/logs/whisper-npu-host.log"
+  },
+  "ct2": {
+    "models_dir": "/data/spectra/models/mt",
+    "beam_size": 2,
+    "intra_threads": 2,
+    "compute_type": "int8",
+    "buffer_sentences": true,
+    "max_hold_seconds": 6.0,
+    "max_hold_chars": 400
+  }
+}

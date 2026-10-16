@@ -1,0 +1,17 @@
+---
+# Deploy spectra-matrix-controller to Pi4 matrix hosts.
+- name: Refresh controller repo on Pi5 (rsync source for Pi4 deploy)
+  hosts: controller
+  tasks:
+    - ansible.builtin.import_role:
+        name: controller_repo
+
+- name: Deploy matrix display hosts
+  hosts: matrix_pis
+  serial: 1
+  become: true
+  roles:
+    - data_layout
+    - rgbmatrix
+    - world_clock
+    - matrix_controller

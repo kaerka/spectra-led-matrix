@@ -1,0 +1,125 @@
+---
+# Harvest Pi4 home media into the Pi5 canonical store, then push that
+# store to both walls. Not part of site.yml — media copies are large and
+# must not hitch Whisper capture or every deploy.
+#
+# Run on Pi5 as your deploy user:
+#
+#   ansible-playbook playbooks/sync-media.yml -i inventory/hosts.yml
+#   ansible-playbook playbooks/sync-media.yml -i inventory/hosts.yml --tags pull
+#   ansible-playbook playbooks/sync-media.yml -i inventory/hosts.yml --tags push
+#   ansible-playbook playbooks/sync-media.yml -i inventory/hosts.yml -e media_kind=gifs
+#
+- name: Sync Pi5 canonical media with Pi4 matrix hosts
+  hosts: matrix_pis
+  serial: 1
+  gather_facts: false
+  vars:
+    media_kind: all
+    media_root: "{{ spectra_data_root }}/media"
+    media_harvest_user: "{{ spectra_deploy_user | default('spectra') }}"
+    media_sync_bwlimit_kbps: "{{ hostvars[groups['controller'][0]].media_sync_bwlimit_kbps | default(8000) }}"
+    media_kind_map:
+      gifs:
+        - { dest: gifs, home: matrix-gif-animations }
+      mp4:
+        - { dest: mp4, home: matrix-mp4-animations }
+      all:
+        - { dest: gifs, home: matrix-gif-animations }
+        - { dest: mp4, home: matrix-mp4-animations }
+  tasks:
+    - name: Require a controller inventory group
+      ansible.builtin.assert:
+        that:
+          - groups['controller'] | default([]) | length > 0
+        fail_msg: "sync-media.yml must run with a controller group (Pi5 canonical store)."
+      tags: [always]
+
+    - name: Validate media_kind
+      ansible.builtin.assert:
+        that:
+          - media_kind in ['gifs', 'mp4', 'all']
+        fail_msg: "media_kind must be gifs, mp4, or all (got {{ media_kind }})"
+      tags: [always]
+
+    - name: Resolve media sync pairs
+      ansible.builtin.set_fact:
+        media_sync_pairs: "{{ media_kind_map[media_kind] }}"
+      tags: [always]
+
+    - name: Ensure Pi5 canonical media directories exist
+      ansible.builtin.file:
+        path: "{{ media_root }}/{{ item.dest }}"
+        state: directory
+        owner: "{{ spectra_user }}"
+        group: "{{ spectra_group }}"
+        mode: "0755"
+      loop: "{{ media_sync_pairs }}"
+      delegate_to: "{{ groups['controller'][0] }}"
+      become: true
+      tags: [always]
+
+    - name: Check Pi4 harvest source directories
+      ansible.builtin.stat:
+        path: "/home/{{ media_harvest_user }}/{{ item.home }}"
+      register: harvest_src
+      loop: "{{ media_sync_pairs }}"
+      loop_control:
+        label: "{{ item.home }}"
+      tags: [pull]
+
+    - name: Harvest Pi4 home media into Pi5 canonical store
+      ansible.builtin.command:
+        cmd: >-
+          rsync -av --partial
+          --bwlimit={{ media_sync_bwlimit_kbps }}
+          {{ media_harvest_user }}@{{ hostvars[inventory_hostname]['ansible_host'] }}:/home/{{ media_harvest_user }}/{{ item.item.home }}/
+          {{ media_root }}/{{ item.item.dest }}/
+      loop: "{{ harvest_src.results }}"
+      loop_control:
+        label: "{{ item.item.home }}"
+      when: item.stat.exists | default(false) and item.stat.isdir | default(false)
+      delegate_to: "{{ groups['controller'][0] }}"
+      become: false
+      changed_when: true
+      tags: [pull]
+
+    - name: Ensure controller deploy key is group-readable
+      ansible.builtin.file:
+        path: "{{ controller_ssh_private_key }}"
+        owner: "{{ spectra_user }}"
+        group: "{{ spectra_group }}"
+        mode: "0640"
+      delegate_to: "{{ groups['controller'][0] }}"
+      become: true
+      tags: [push]
+
+    - name: Push Pi5 canonical media to Pi4 /data/spectra/media
+      ansible.builtin.command:
+        cmd: >-
+          rsync -av --delete --no-owner --no-group --omit-dir-times --partial
+          --bwlimit={{ media_sync_bwlimit_kbps }}
+          --rsync-path="sudo rsync"
+          -e "ssh -i {{ controller_ssh_private_key }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes"
+          {{ media_root }}/{{ item.dest }}/
+          {{ spectra_user }}@{{ hostvars[inventory_hostname]['ansible_host'] }}:{{ media_root }}/{{ item.dest }}/
+      loop: "{{ media_sync_pairs }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      delegate_to: "{{ groups['controller'][0] }}"
+      become: false
+      changed_when: true
+      tags: [push]
+
+    - name: Set Pi4 media ownership after push
+      ansible.builtin.file:
+        path: "{{ media_root }}/{{ item.dest }}"
+        owner: "{{ spectra_user }}"
+        group: "{{ spectra_group }}"
+        mode: "0755"
+        recurse: true
+      loop: "{{ media_sync_pairs }}"
+      loop_control:
+        label: "{{ item.dest }}"
+      become: true
+      tags: [push]

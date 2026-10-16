@@ -1,0 +1,23 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	metadata {
+		title = "FastRPC reserved DMA pool (NPU/CDSP)";
+		compatible = "radxa,dragon-q6a";
+		category = "misc";
+		description = "Declares adsp-rpc-remote-heap as a shared-dma-pool and attaches it to the ADSP and CDSP FastRPC nodes.";
+	};
+};
+
+&adsp_rpc_remote_heap_mem {
+	compatible = "shared-dma-pool";
+};
+
+&{/soc@0/remoteproc@a300000/glink-edge/fastrpc} {
+	memory-region = <&adsp_rpc_remote_heap_mem>;
+};
+
+&{/soc@0/remoteproc@3700000/glink-edge/fastrpc} {
+	memory-region = <&adsp_rpc_remote_heap_mem>;
+};

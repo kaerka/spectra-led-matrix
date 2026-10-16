@@ -1,0 +1,56 @@
+# Pi5 controller host group
+
+is_controller: true
+mosquitto_listen_address: "0.0.0.0"
+mosquitto_port: 1883
+
+whisper_capture_outdir: "{{ spectra_data_root }}/audio-capture/chunks"
+whisper_transcript_dir: "{{ spectra_data_root }}/audio-capture/transcripts"
+whisper_engine: cpu  # cpu | coral | remote
+
+meshtasticd_host: localhost
+meshtasticd_port: 4403
+
+whisper_chunk_seconds: 10.0
+whisper_capture_device: "ReSpeaker 4 Mic Array (UAC1.0)"
+whisper_capture_channels: 6
+whisper_capture_channel_index: 0
+whisper_model: base
+whisper_language: auto
+whisper_translate_engine: whisper
+whisper_target_language: en
+whisper_mqtt_ttl: 30
+whisper_text_color: [255, 255, 255]
+whisper_no_speech_threshold: 0.65
+whisper_min_words: 2
+whisper_min_chars: 4
+whisper_max_no_speech_prob: 0.55
+whisper_min_avg_logprob: -0.75
+whisper_translate_skip_logprob: true
+whisper_min_avg_logprob_translate: -2.0
+whisper_max_no_speech_prob_translate: 0.72
+
+whisper_venv: "{{ repo_paths.spectra_matrix_controller }}/bridges/whisper/.venv"
+whisper_bridge_dir: "{{ repo_paths.spectra_matrix_controller }}/bridges/whisper"
+
+meshtastic_venv: "{{ repo_paths.spectra_matrix_controller }}/bridges/meshtastic/.venv"
+meshtastic_bridge_dir: "{{ repo_paths.spectra_matrix_controller }}/bridges/meshtastic"
+meshtastic_long_name: "Spectra Wall"
+meshtastic_short_name: "SP1"
+meshtastic_region: US
+meshtastic_mqtt_ttl: 30
+meshtastic_text_color: [0, 200, 255]
+
+orchestrator_request_timeout_seconds: 5
+
+wifi_interface: wlan1
+
+# Built-in brcmfmac (wlan0) is unreliable with 4× USB populated; controller uses USB WiFi.
+controller_wifi_kind: usb   # usb | onboard
+controller_disable_onboard_wifi: true
+
+# Throttle media rsync either direction (KB/s) — playbooks/sync-media.yml
+media_sync_bwlimit_kbps: 8000
+
+# Adafruit Ultimate GPS HAT — Pi5 GPIO UART → ttyAMA0 (NOT ttyAMA10 debug header)
+gps_serial_device: ttyAMA0

@@ -1,0 +1,245 @@
+---
+- name: Check for a home-directory checkout to seed from (optional)
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/spectra-led-matrix/.git"
+  register: legacy_controller
+
+- name: Seed spectra-led-matrix from a home-directory checkout (bootstrap fallback)
+  ansible.builtin.command:
+    cmd: >-
+      rsync -a --delete
+      --exclude .git --exclude .venv --exclude __pycache__
+      {{ ansible_env.HOME }}/spectra-led-matrix/
+      {{ repo_paths.spectra_matrix_controller }}/
+  when:
+    - legacy_controller.stat.exists
+    - matrix_controller_seed_from_legacy | default(false)
+
+- name: Ensure controller deploy key is group-readable
+  ansible.builtin.file:
+    path: "{{ controller_ssh_private_key }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0640"
+  delegate_to: "{{ (groups['controller'] | default(['localhost']))[0] }}"
+  become: true
+  when:
+    - matrix_controller_sync_source | default('controller') == 'controller'
+    - groups['controller'] | default([]) | length > 0
+
+- name: Sync spectra-matrix-controller from Pi5 controller
+  ansible.builtin.command:
+    cmd: >-
+      rsync -az --delete --no-owner --no-group --omit-dir-times --itemize-changes
+      --rsync-path="sudo rsync"
+      -e "ssh -i {{ controller_ssh_private_key }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes"
+      --exclude .git --exclude .venv --exclude __pycache__
+      --exclude bridges/whisper/.venv --exclude bridges/meshtastic/.venv
+      --exclude ansible/inventory/hosts.yml
+      --exclude rpi-rgb-led-matrix
+      {{ controller_sync_src }}/
+      {{ spectra_user }}@{{ hostvars[inventory_hostname]['ansible_host'] }}:{{ repo_paths.spectra_matrix_controller }}/
+  delegate_to: "{{ (groups['controller'] | default(['localhost']))[0] }}"
+  become: false
+  vars:
+    controller_sync_src: "{{ hostvars[groups['controller'][0]]['repo_paths']['spectra_matrix_controller'] }}"
+  when:
+    - matrix_controller_sync_source | default('controller') == 'controller'
+    - groups['controller'] | default([]) | length > 0
+  register: matrix_controller_sync_pi5
+  # Lines starting with "." are permission/time-only updates (the ownership
+  # task below resets modes every run), not code changes.
+  changed_when: matrix_controller_sync_pi5.stdout_lines | select('match', '^[<>ch*]') | list | length > 0
+
+# Standalone hosts (Mini-Spectra Clocks) have no Pi5; push from the Ansible machine.
+- name: Sync spectra-matrix-controller from the Ansible control machine
+  ansible.builtin.command:
+    cmd: >-
+      rsync -az --delete --no-owner --no-group --omit-dir-times --itemize-changes
+      --rsync-path="sudo rsync"
+      --exclude .git --exclude .venv --exclude __pycache__ --exclude .pytest_cache
+      --exclude bridges/whisper/.venv --exclude bridges/meshtastic/.venv
+      --exclude ansible/inventory/hosts.yml
+      --exclude rpi-rgb-led-matrix
+      {{ playbook_dir }}/../../
+      {{ ansible_user }}@{{ ansible_host }}:{{ repo_paths.spectra_matrix_controller }}/
+  delegate_to: localhost
+  become: false
+  when: matrix_controller_sync_source | default('controller') == 'local'
+  register: matrix_controller_sync_local
+  changed_when: matrix_controller_sync_local.stdout_lines | select('match', '^[<>ch*]') | list | length > 0
+
+- name: Collect repo sync changes
+  ansible.builtin.set_fact:
+    matrix_controller_sync_lines: >-
+      {{ (matrix_controller_sync_pi5.stdout_lines | default([]))
+         + (matrix_controller_sync_local.stdout_lines | default([])) }}
+
+- name: Restart wall service when its code changed
+  ansible.builtin.debug:
+    msg: "Wall code changed; restarting spectra-matrix-controller"
+  when:
+    - matrix_controller_sync_lines | select('match', '^[<>ch*][^ ]* +(display/|web/|run\.py|requirements\.txt)') | list | length > 0
+  changed_when: true
+  notify: Restart spectra-matrix-controller
+
+- name: Set spectra-matrix-controller repo ownership
+  ansible.builtin.file:
+    path: "{{ repo_paths.spectra_matrix_controller }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0775"
+    recurse: true
+
+- name: Create Python venv
+  ansible.builtin.command:
+    cmd: python3 -m venv .venv
+    chdir: "{{ repo_paths.spectra_matrix_controller }}"
+    creates: "{{ repo_paths.spectra_matrix_controller }}/.venv/bin/python"
+
+- name: Install Python requirements
+  ansible.builtin.pip:
+    requirements: "{{ repo_paths.spectra_matrix_controller }}/requirements.txt"
+    virtualenv: "{{ repo_paths.spectra_matrix_controller }}/.venv"
+    state: present
+
+- name: Copy secrets from a home-directory checkout if present
+  ansible.builtin.copy:
+    src: "{{ ansible_env.HOME }}/spectra-led-matrix/config/secrets.local.json"
+    dest: "{{ spectra_data_root }}/config/secrets.local.json"
+    remote_src: true
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0600"
+  failed_when: false
+
+- name: Check whether secrets.local.json exists
+  ansible.builtin.stat:
+    path: "{{ spectra_data_root }}/config/secrets.local.json"
+  register: secrets_file
+
+# Optional: when one wall already has secrets, copy them to the peer (set
+# spectra_secrets_peer in inventory to a host in matrix_pis, e.g. wall-lower).
+- name: Pull secrets from peer wall when missing
+  ansible.builtin.slurp:
+    src: /data/spectra/config/secrets.local.json
+  delegate_to: "{{ spectra_secrets_peer }}"
+  register: peer_secrets
+  when:
+    - spectra_secrets_peer is defined
+    - spectra_secrets_peer in hostvars
+    - inventory_hostname != spectra_secrets_peer
+    - not secrets_file.stat.exists
+
+- name: Write secrets pulled from peer wall
+  ansible.builtin.copy:
+    dest: "{{ spectra_data_root }}/config/secrets.local.json"
+    content: "{{ peer_secrets.content | b64decode }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0600"
+  when:
+    - peer_secrets is not skipped
+    - peer_secrets.content is defined
+
+- name: Ensure secrets.local.json exists from example
+  ansible.builtin.copy:
+    src: "{{ repo_paths.spectra_matrix_controller }}/config/secrets.example.json"
+    dest: "{{ spectra_data_root }}/config/secrets.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0600"
+    remote_src: true
+    force: false
+
+- name: Deploy display_state.json
+  ansible.builtin.template:
+    src: display_state.json.j2
+    dest: "{{ spectra_data_root }}/config/display_state.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0644"
+
+- name: Deploy mqtt.local.json
+  ansible.builtin.template:
+    src: mqtt.local.json.j2
+    dest: "{{ spectra_data_root }}/config/mqtt.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0600"
+
+- name: Ensure brightness_schedule.local.json exists from example
+  ansible.builtin.copy:
+    src: "{{ repo_paths.spectra_matrix_controller }}/config/brightness_schedule.example.json"
+    dest: "{{ spectra_data_root }}/config/brightness_schedule.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0644"
+    remote_src: true
+    force: false
+  when: brightness_schedule is not defined
+
+- name: Deploy brightness_schedule.local.json from inventory
+  ansible.builtin.copy:
+    content: "{{ brightness_schedule | to_nice_json }}\n"
+    dest: "{{ spectra_data_root }}/config/brightness_schedule.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0644"
+  when: brightness_schedule is defined
+  notify: Restart spectra-matrix-controller
+
+# Panel geometry / driver board / brightness ceiling; walls use the code defaults.
+- name: Deploy matrix.local.json
+  ansible.builtin.copy:
+    content: "{{ matrix_config | to_nice_json }}\n"
+    dest: "{{ spectra_data_root }}/config/matrix.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0644"
+  when: matrix_config is defined
+  notify: Restart spectra-matrix-controller
+
+- name: Deploy clock.local.json
+  ansible.builtin.copy:
+    content: "{{ clock_config | to_nice_json }}\n"
+    dest: "{{ spectra_data_root }}/config/clock.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0644"
+  when: clock_config is defined
+  notify: Restart spectra-matrix-controller
+
+- name: Symlink runtime config into repo config dir
+  ansible.builtin.file:
+    src: "{{ spectra_data_root }}/config/{{ item }}"
+    dest: "{{ repo_paths.spectra_matrix_controller }}/config/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - secrets.local.json
+    - display_state.json
+    - mqtt.local.json
+    - brightness_schedule.local.json
+
+- name: Disable legacy display services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop: "{{ legacy_services_to_disable }}"
+  failed_when: false
+
+- name: Install spectra-matrix-controller systemd unit
+  ansible.builtin.template:
+    src: spectra-matrix-controller.service.j2
+    dest: /etc/systemd/system/spectra-matrix-controller.service
+    mode: "0644"
+  notify: Restart spectra-matrix-controller
+
+- name: Enable and start spectra-matrix-controller
+  ansible.builtin.systemd:
+    name: spectra-matrix-controller
+    enabled: true
+    state: started
+    daemon_reload: true

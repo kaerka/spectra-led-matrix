@@ -1,0 +1,23 @@
+---
+- name: Install Mosquitto broker
+  ansible.builtin.apt:
+    name:
+      - mosquitto
+      - mosquitto-clients
+    state: present
+    update_cache: true
+
+- name: Deploy Mosquitto listen config
+  ansible.builtin.copy:
+    dest: /etc/mosquitto/conf.d/spectra.conf
+    mode: "0644"
+    content: |
+      listener {{ mosquitto_port }} {{ mosquitto_listen_address }}
+      allow_anonymous true
+  notify: Restart mosquitto
+
+- name: Enable and start Mosquitto
+  ansible.builtin.systemd:
+    name: mosquitto
+    enabled: true
+    state: started

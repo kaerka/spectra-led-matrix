@@ -1,0 +1,17 @@
+---
+- name: Generate controller SSH key for spectra user (Pi5)
+  ansible.builtin.command:
+    cmd: ssh-keygen -t ed25519 -f {{ spectra_data_root }}/config/controller_id_rsa -N "" -C spectra-controller
+    creates: "{{ spectra_data_root }}/config/controller_id_rsa"
+  when: is_controller | default(false)
+
+- name: Set controller key ownership
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "{{ '0640' if item.endswith('_rsa') else '0644' }}"
+  loop:
+    - "{{ spectra_data_root }}/config/controller_id_rsa"
+    - "{{ spectra_data_root }}/config/controller_id_rsa.pub"
+  when: is_controller | default(false)

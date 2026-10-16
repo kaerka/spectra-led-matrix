@@ -1,0 +1,20 @@
+{
+  "active_mode": "weather",
+  "media_path": null,
+  "mode_config": {
+    "flame": {
+      "preset": "orange",
+      "intensity": 0
+    },
+    "lava": {
+      "preset": "orange",
+      "intensity": 0
+    },
+    "starfield": {
+      "preset": "classic",
+      "color_mode": "depth",
+      "intensity": 0
+    }
+  },
+  "updated_at": null
+}

@@ -1,0 +1,27 @@
+---
+# Adafruit Ultimate GPS on Pi5 GPIO UART (ttyAMA0). ttyAMA10 is the debug header only.
+
+- name: Disable login getty on GPS serial port
+  ansible.builtin.systemd:
+    name: "serial-getty@{{ gps_serial_device }}.service"
+    enabled: false
+    state: stopped
+  failed_when: false
+
+- name: Enable UART0 on Pi5 GPIO header for GPS HAT
+  ansible.builtin.blockinfile:
+    path: /boot/firmware/config.txt
+    marker: "# {mark} ANSIBLE spectra-gps-hat"
+    insertafter: "^\\[pi5\\]"
+    block: |
+      dtparam=uart0=on
+      dtoverlay=pps-gpio,gpiopin={{ gps_pps_gpio }}
+  when: gps_enable_uart0 | default(true)
+  notify: Reboot for GPS UART
+
+- name: Disable getty on debug UART if present
+  ansible.builtin.systemd:
+    name: serial-getty@ttyAMA10.service
+    enabled: false
+    state: stopped
+  failed_when: false

@@ -1,0 +1,396 @@
+---
+# Whisper ASR on the Hexagon NPU of a Radxa Dragon Q6A (QCS6490, Hexagon V68).
+#
+# Encodes the board fixes that made FastRPC work at all, then builds the
+# persistent whisper-npu-host helper that bridges/whisper/asr_npu.py drives.
+# Expects bridges/whisper/npu_host/ to have been synced to whisper_bridge_dir.
+
+# --- Preflight -------------------------------------------------------------
+
+- name: Read device-tree model
+  ansible.builtin.slurp:
+    src: /sys/firmware/devicetree/base/model
+  register: whisper_npu_dt_model
+
+- name: Require a Radxa Dragon Q6A
+  ansible.builtin.assert:
+    that: "'Dragon Q6A' in (whisper_npu_dt_model.content | b64decode)"
+    fail_msg: >-
+      whisper_npu targets the Radxa Dragon Q6A (QCS6490); this host reports
+      '{{ whisper_npu_dt_model.content | b64decode | replace('\u0000', '') }}'.
+
+- name: Gather installed packages
+  ansible.builtin.package_facts:
+
+# Canonical's Qualcomm PPA stack (qcom-fastrpc1, built for its 6.8 kernel) does
+# not work against Radxa's kernel; Radxa's fastrpc/libcdsprpc1 must supply the
+# runtime and cdsprpcd. qairt-dsp-binaries supplies the QNN HTP V68 skels.
+- name: Require Radxa's FastRPC stack and the QNN DSP skels
+  ansible.builtin.assert:
+    that:
+      - "'fastrpc' in ansible_facts.packages"
+      - "'libcdsprpc1' in ansible_facts.packages"
+      - "'qairt-dsp-binaries' in ansible_facts.packages"
+    fail_msg: >-
+      Install Radxa's fastrpc + libcdsprpc1 (Radxa apt repo) and
+      qairt-dsp-binaries before applying whisper_npu. See
+      bridges/whisper/README.md "Deploying the NPU path".
+
+- name: Check operator-supplied VoiceAI SDK and model files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ whisper_npu_sdk_dir }}/include/npu/rpc/linux/Whisper.h"
+    - "{{ whisper_npu_model_dir }}/encoder_model_htp.bin"
+    - "{{ whisper_npu_model_dir }}/decoder_model_htp.bin"
+    - "{{ whisper_npu_model_dir }}/vocab.bin"
+    - "{{ whisper_npu_model_dir }}/speech_float.eai"
+  register: whisper_npu_vendor_files
+
+- name: Require the VoiceAI SDK and Whisper-Small-Quantized model
+  ansible.builtin.assert:
+    that: whisper_npu_vendor_files.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      Missing: {{ whisper_npu_vendor_files.results | rejectattr('stat.exists')
+      | map(attribute='item') | join(', ') }}. These are proprietary Qualcomm
+      files and must be copied onto the host first; see
+      bridges/whisper/README.md "Deploying the NPU path".
+
+- name: Make vendor files readable by the service user
+  ansible.builtin.file:
+    path: "{{ whisper_npu_vendor_dir }}"
+    owner: root
+    group: "{{ spectra_group }}"
+    mode: "u=rwX,g=rX,o="
+    recurse: true
+
+- name: Install NPU build dependencies
+  ansible.builtin.apt:
+    name:
+      - cmake
+      - g++
+      - make
+      - device-tree-compiler
+    state: present
+
+# --- Device tree: FastRPC reserved DMA pool ----------------------------------
+# Without this overlay the FastRPC nodes have no memory-region and every remote
+# call fails. Radxa's kernel-install hook (99-update-overlay.install) carries
+# /boot/dtbo overlays forward into new kernels' loader entries.
+
+- name: Install FastRPC DMA overlay source
+  ansible.builtin.copy:
+    src: "{{ whisper_npu_overlay_name }}.dts"
+    dest: "/boot/dtbo/{{ whisper_npu_overlay_name }}.dtbo.dts"
+    mode: "0644"
+  register: whisper_npu_overlay_src
+
+- name: Compile FastRPC DMA overlay
+  ansible.builtin.command:
+    cmd: >-
+      dtc -@ -q -I dts -O dtb
+      -o /boot/dtbo/{{ whisper_npu_overlay_name }}.dtbo
+      /boot/dtbo/{{ whisper_npu_overlay_name }}.dtbo.dts
+    creates: "{{ omit if whisper_npu_overlay_src.changed else '/boot/dtbo/' + whisper_npu_overlay_name + '.dtbo' }}"
+
+- name: Read boot entry token
+  ansible.builtin.slurp:
+    src: /etc/kernel/entry-token
+  register: whisper_npu_entry_token
+
+- name: Locate current kernel's loader entry
+  ansible.builtin.set_fact:
+    whisper_npu_token: "{{ whisper_npu_entry_token.content | b64decode | trim }}"
+    whisper_npu_loader_entry: >-
+      /boot/efi/loader/entries/{{ whisper_npu_entry_token.content | b64decode | trim }}-{{ ansible_kernel }}.conf
+    whisper_npu_overlay_efi_path: >-
+      /{{ whisper_npu_entry_token.content | b64decode | trim }}/{{ ansible_kernel }}/dtbo/{{ whisper_npu_overlay_name }}.dtbo
+
+- name: Copy overlay into the current kernel's EFI entry
+  ansible.builtin.copy:
+    src: "/boot/dtbo/{{ whisper_npu_overlay_name }}.dtbo"
+    dest: "/boot/efi{{ whisper_npu_overlay_efi_path | trim }}"
+    remote_src: true
+    mode: "0700"
+
+- name: Read loader entry
+  ansible.builtin.slurp:
+    src: "{{ whisper_npu_loader_entry | trim }}"
+  register: whisper_npu_entry
+
+# systemd-boot takes one space-separated devicetree-overlay line, so join an
+# existing line rather than adding a second.
+- name: Add overlay to the existing devicetree-overlay line
+  ansible.builtin.lineinfile:
+    path: "{{ whisper_npu_loader_entry | trim }}"
+    regexp: '^(devicetree-overlay\s+)(?!.*{{ whisper_npu_overlay_name }}\.dtbo)(.*)$'
+    line: '\1\2 {{ whisper_npu_overlay_efi_path | trim }}'
+    backrefs: true
+  when: "'devicetree-overlay' in (whisper_npu_entry.content | b64decode)"
+
+- name: Add a devicetree-overlay line for the overlay
+  ansible.builtin.lineinfile:
+    path: "{{ whisper_npu_loader_entry | trim }}"
+    line: "devicetree-overlay {{ whisper_npu_overlay_efi_path | trim }}"
+    insertafter: '^devicetree\s'
+  when: "'devicetree-overlay' not in (whisper_npu_entry.content | b64decode)"
+
+# --- Boot the CDSP and order the FastRPC daemon after it --------------------
+# The PAS remoteproc does not auto_boot; cdsprpcd started before the DSP comes
+# up silently loses its session.
+
+- name: Load fastrpc at boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/fastrpc.conf
+    content: "fastrpc\n"
+    mode: "0644"
+
+- name: Install DSP helper scripts
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/sbin/{{ item }}"
+    mode: "0755"
+  loop:
+    - dsp-remoteproc-up.sh
+    - dsp-qnn-aliases.sh
+
+- name: Install dsp-remoteproc unit
+  ansible.builtin.copy:
+    src: dsp-remoteproc.service
+    dest: /etc/systemd/system/dsp-remoteproc.service
+    mode: "0644"
+  notify: Restart cdsprpcd
+
+- name: Create cdsprpcd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/cdsprpcd.service.d
+    state: directory
+    mode: "0755"
+
+- name: Order cdsprpcd after the CDSP boots
+  ansible.builtin.copy:
+    src: cdsprpcd-after-dsp.conf
+    dest: /etc/systemd/system/cdsprpcd.service.d/10-after-dsp.conf
+    mode: "0644"
+  notify: Restart cdsprpcd
+
+# --- QNN skels ----------------------------------------------------------------
+# setup-dsp.sh points /usr/lib/dsp at Radxa's board payload, which has no QNN
+# skels; merge them in from qairt-dsp-binaries. dsp-qnn-aliases.sh then adds the
+# API-version-suffixed names (libFoo.so.2) QNN asks the DSP for.
+
+- name: Find QNN DSP skels shipped by qairt-dsp-binaries
+  ansible.builtin.find:
+    paths: "{{ whisper_npu_qnn_skel_src }}"
+    patterns:
+      - "libQnn*.so"
+      - "libCalculator_skel.so"
+  register: whisper_npu_skels
+
+- name: Merge QNN skels into the board DSP payload
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "{{ whisper_npu_board_dsp_dir }}/{{ item.path | basename }}"
+    remote_src: true
+    force: false
+    mode: "0644"
+  loop: "{{ whisper_npu_skels.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+- name: Enable and start dsp-remoteproc
+  ansible.builtin.systemd:
+    name: dsp-remoteproc
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Re-assert QNN skel aliases
+  ansible.builtin.command: /usr/local/sbin/dsp-qnn-aliases.sh
+  changed_when: false
+
+# --- Non-root access ----------------------------------------------------------
+# Radxa's rules leave the *-secure FastRPC nodes root-only; libcdsprpc probes
+# them first and the caller segfaults on EACCES.
+
+- name: Ensure fastrpc group exists
+  ansible.builtin.group:
+    name: fastrpc
+    system: true
+
+- name: Add the service user to the fastrpc group
+  ansible.builtin.user:
+    name: "{{ spectra_user }}"
+    groups: fastrpc
+    append: true
+  notify: Restart spectra-whisper-transcribe
+
+- name: Grant the fastrpc group the secure FastRPC nodes
+  ansible.builtin.copy:
+    src: 61-fastrpc-local.rules
+    dest: /etc/udev/rules.d/61-fastrpc-local.rules
+    mode: "0644"
+  notify: Reload udev for fastrpc
+
+- name: Apply udev changes before the smoke test
+  ansible.builtin.meta: flush_handlers
+
+# --- QNN host libraries ---------------------------------------------------------
+# Unpacked, not installed (see whisper_npu_qairt_dir), at the same version as
+# the qairt-dsp-binaries skels so host stub and DSP skel agree.
+
+- name: Pin QNN host libraries to the installed DSP skel version
+  ansible.builtin.set_fact:
+    whisper_npu_qairt_version: "{{ ansible_facts.packages['qairt-dsp-binaries'][0].version }}"
+
+- name: Read unpacked qairt-libs version
+  ansible.builtin.slurp:
+    src: "{{ whisper_npu_qairt_dir }}/VERSION"
+  register: whisper_npu_qairt_current
+  failed_when: false
+
+- name: Unpack qairt-libs {{ whisper_npu_qairt_version }}
+  when: >-
+    whisper_npu_qairt_current.content is not defined or
+    (whisper_npu_qairt_current.content | b64decode | trim) != whisper_npu_qairt_version
+  block:
+    - name: Create download directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: qairt-libs
+      register: whisper_npu_qairt_tmp
+
+    # The apt module can only install, and installing qairt-libs removes Radxa's fastrpc.
+    - name: Download qairt-libs without installing it  # noqa: command-instead-of-module
+      ansible.builtin.command:
+        cmd: apt-get download qairt-libs={{ whisper_npu_qairt_version }}
+        chdir: "{{ whisper_npu_qairt_tmp.path }}"
+      changed_when: true
+
+    - name: Clear previous qairt-libs tree
+      ansible.builtin.file:
+        path: "{{ whisper_npu_qairt_dir }}"
+        state: absent
+
+    - name: Extract qairt-libs
+      ansible.builtin.shell: >-
+        mkdir -p {{ whisper_npu_qairt_dir }} &&
+        dpkg-deb -x {{ whisper_npu_qairt_tmp.path }}/qairt-libs_*.deb {{ whisper_npu_qairt_dir }}
+      changed_when: true
+      notify: Restart spectra-whisper-transcribe
+
+    - name: Record unpacked qairt-libs version
+      ansible.builtin.copy:
+        dest: "{{ whisper_npu_qairt_dir }}/VERSION"
+        content: "{{ whisper_npu_qairt_version }}\n"
+        mode: "0644"
+  always:
+    - name: Remove download directory
+      ansible.builtin.file:
+        path: "{{ whisper_npu_qairt_tmp.path }}"
+        state: absent
+      when: whisper_npu_qairt_tmp.path is defined
+
+# The SDK passes the model directory as the DSP library search path, so the
+# V68 skel has to be reachable from there.
+- name: Link the QNN V68 skel into the model directory
+  ansible.builtin.file:
+    src: /usr/lib/dsp/cdsp/libQnnHtpV68Skel.so
+    dest: "{{ whisper_npu_model_dir }}/libQnnHtpV68Skel.so"
+    state: link
+    force: true
+
+# --- Build the helper -----------------------------------------------------------
+
+- name: Create helper install prefix
+  ansible.builtin.file:
+    path: "{{ whisper_npu_prefix }}"
+    state: directory
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0755"
+
+- name: Read source directory recorded in the CMake cache
+  ansible.builtin.command:
+    cmd: grep -s '^CMAKE_HOME_DIRECTORY:' {{ whisper_npu_prefix }}/build/CMakeCache.txt
+  register: whisper_npu_cmake_home
+  changed_when: false
+  failed_when: false
+
+# CMake refuses to reuse a build tree generated from another source directory.
+- name: Discard build tree generated from a different source directory
+  ansible.builtin.file:
+    path: "{{ whisper_npu_prefix }}/build"
+    state: absent
+  when:
+    - whisper_npu_cmake_home.rc == 0
+    - whisper_npu_cmake_home.stdout.split('=', 1)[1] != whisper_bridge_dir ~ '/npu_host'
+
+# Built as the service user (runuser rather than become_user, which would need
+# ACL support for an unprivileged-to-unprivileged switch).
+- name: Configure whisper-npu-host
+  ansible.builtin.command:
+    cmd: >-
+      runuser -u {{ spectra_user }} --
+      cmake -S {{ whisper_bridge_dir }}/npu_host -B {{ whisper_npu_prefix }}/build
+      -DVOICEAI_SDK={{ whisper_npu_sdk_dir }}
+      -DCMAKE_INSTALL_PREFIX={{ whisper_npu_prefix }}
+      -DCMAKE_BUILD_TYPE=Release
+  changed_when: false
+
+- name: Build whisper-npu-host
+  ansible.builtin.command:
+    cmd: runuser -u {{ spectra_user }} -- cmake --build {{ whisper_npu_prefix }}/build -j 4
+  register: whisper_npu_build
+  changed_when: "'Linking' in whisper_npu_build.stdout"
+
+- name: Install whisper-npu-host
+  ansible.builtin.command:
+    cmd: runuser -u {{ spectra_user }} -- cmake --install {{ whisper_npu_prefix }}/build
+  register: whisper_npu_install
+  changed_when: "'-- Installing:' in whisper_npu_install.stdout"
+  notify: Restart spectra-whisper-transcribe
+
+- name: Install helper environment script
+  ansible.builtin.template:
+    src: whisper-npu-env.sh.j2
+    dest: "{{ whisper_npu_env_script }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0644"
+  notify: Restart spectra-whisper-transcribe
+
+# --- Smoke test ------------------------------------------------------------------
+
+- name: Wait for the CDSP FastRPC node
+  ansible.builtin.wait_for:
+    path: /dev/fastrpc-cdsp
+    timeout: 30
+
+- name: Check the service user can open the secure CDSP node
+  ansible.builtin.command: runuser -u {{ spectra_user }} -- test -r /dev/fastrpc-cdsp-secure
+  changed_when: false
+
+# --languages loads every SDK and QNN host library without opening a DSP
+# session, so it proves linkage and env.sh without risking a leaked context.
+- name: Check the helper links and loads as the service user
+  ansible.builtin.command:
+    cmd: >-
+      runuser -u {{ spectra_user }} -- bash -c
+      '. {{ whisper_npu_env_script }} && {{ whisper_npu_binary }} --languages'
+  register: whisper_npu_langs
+  changed_when: false
+  failed_when: "'supported languages' not in whisper_npu_langs.stdout"
+
+- name: Check whether the FastRPC overlay is live
+  ansible.builtin.stat:
+    path: /sys/firmware/devicetree/base/soc@0/remoteproc@a300000/glink-edge/fastrpc/memory-region
+  register: whisper_npu_overlay_live
+
+- name: Warn that a reboot is needed to load the overlay
+  ansible.builtin.debug:
+    msg: >-
+      The FastRPC DMA overlay is installed but not active yet. Reboot
+      {{ inventory_hostname }} before relying on the NPU; until then every
+      remote call will fail.
+  when: not whisper_npu_overlay_live.stat.exists

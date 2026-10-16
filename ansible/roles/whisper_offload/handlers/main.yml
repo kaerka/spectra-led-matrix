@@ -1,0 +1,6 @@
+---
+- name: Restart spectra-whisper-transcribe
+  ansible.builtin.systemd:
+    name: spectra-whisper-transcribe
+    state: restarted
+    daemon_reload: true

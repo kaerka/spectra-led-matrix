@@ -1,0 +1,36 @@
+---
+# Deploy standalone Mini-Spectra Clocks (no Pi5 controller involved).
+#
+#   ansible-playbook playbooks/mini-clocks.yml -i inventory/hosts.yml -e ansible_user="$USER"
+#
+# The deploying user needs SSH key access and passwordless sudo on the clock.
+- name: Deploy Mini-Spectra Clocks
+  hosts: mini_clocks
+  become: true
+  roles:
+    - spectra_user
+    - data_layout
+    - rgbmatrix
+    - mosquitto
+    - matrix_controller
+
+  tasks:
+    # brcmfmac power save holds inbound packets; UI clicks queue up and land in bursts.
+    - name: Install iw
+      ansible.builtin.apt:
+        name: iw
+        state: present
+
+    - name: Disable Wi-Fi power save in NetworkManager (persistent)
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+        mode: "0644"
+        content: |
+          [connection]
+          wifi.powersave = 2
+
+    - name: Disable Wi-Fi power save now
+      ansible.builtin.command:
+        cmd: iw dev wlan0 set power_save off
+      changed_when: false
+      failed_when: false

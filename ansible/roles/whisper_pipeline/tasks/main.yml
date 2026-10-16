@@ -1,0 +1,83 @@
+---
+- name: Install whisper capture dependencies
+  ansible.builtin.apt:
+    name:
+      - ffmpeg
+      - libportaudio2
+      - portaudio19-dev
+      - python3-venv
+    state: present
+    update_cache: true
+
+- name: Mark whisper-audio-capture repo as safe for git
+  ansible.builtin.command:
+    cmd: git config --global --add safe.directory {{ repo_paths.whisper_audio_capture }}
+  changed_when: true
+  failed_when: false
+
+- name: Clone whisper-audio-capture repo
+  ansible.builtin.git:
+    repo: "{{ repo_urls.whisper_audio_capture }}"
+    dest: "{{ repo_paths.whisper_audio_capture }}"
+    version: main
+    update: true
+
+- name: Set whisper-audio-capture ownership
+  ansible.builtin.file:
+    path: "{{ repo_paths.whisper_audio_capture }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    recurse: true
+
+- name: Create whisper bridge venv
+  ansible.builtin.command:
+    cmd: python3 -m venv .venv
+    chdir: "{{ whisper_bridge_dir }}"
+    creates: "{{ whisper_venv }}/bin/python"
+
+- name: Install whisper bridge Python requirements
+  ansible.builtin.pip:
+    requirements: "{{ whisper_bridge_dir }}/requirements.txt"
+    virtualenv: "{{ whisper_venv }}"
+    state: present
+
+- name: Install Argos Translate en→ru package (when target is Russian)
+  ansible.builtin.command:
+    cmd: runuser -u {{ spectra_user }} -- {{ whisper_venv }}/bin/python install_argos_pair.py en ru
+    chdir: "{{ whisper_bridge_dir }}"
+  when: whisper_target_language == 'ru'
+  changed_when: true
+
+- name: Deploy whisper.local.json
+  ansible.builtin.template:
+    src: whisper.local.json.j2
+    dest: "{{ spectra_data_root }}/config/whisper.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0640"
+  notify:
+    - Restart spectra-whisper-transcribe
+
+- name: Install spectra-whisper-capture systemd unit
+  ansible.builtin.template:
+    src: spectra-whisper-capture.service.j2
+    dest: /etc/systemd/system/spectra-whisper-capture.service
+    mode: "0644"
+  notify: Restart spectra-whisper-capture
+
+- name: Install spectra-whisper-transcribe systemd unit
+  ansible.builtin.template:
+    src: spectra-whisper-transcribe.service.j2
+    dest: /etc/systemd/system/spectra-whisper-transcribe.service
+    mode: "0644"
+  notify: Restart spectra-whisper-transcribe
+
+- name: Enable and start whisper services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - spectra-whisper-capture
+    - spectra-whisper-transcribe

@@ -1,0 +1,32 @@
+---
+- name: Check for legacy world-clock install
+  ansible.builtin.stat:
+    path: $HOME/world-clock/.git
+  register: legacy_world_clock
+
+- name: Seed world-clock from legacy home install
+  ansible.builtin.command:
+    cmd: rsync -a --delete $HOME/world-clock/ {{ repo_paths.world_clock }}/
+  when: legacy_world_clock.stat.exists
+
+- name: Mark world-clock repo as safe for git
+  ansible.builtin.command:
+    cmd: git config --global --add safe.directory {{ repo_paths.world_clock }}
+  changed_when: false
+  failed_when: false
+  when: not legacy_world_clock.stat.exists
+
+- name: Clone world-clock repo
+  ansible.builtin.git:
+    repo: "{{ repo_urls.world_clock }}"
+    dest: "{{ repo_paths.world_clock }}"
+    version: main
+    update: true
+  when: not legacy_world_clock.stat.exists
+
+- name: Set world-clock repo ownership
+  ansible.builtin.file:
+    path: "{{ repo_paths.world_clock }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    recurse: false

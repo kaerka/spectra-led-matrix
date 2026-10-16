@@ -1,0 +1,12 @@
+---
+- name: Restart gpsd
+  ansible.builtin.systemd:
+    name: gpsd
+    state: restarted
+    daemon_reload: true
+
+- name: Restart chrony
+  ansible.builtin.systemd:
+    name: chrony
+    state: restarted
+    daemon_reload: true

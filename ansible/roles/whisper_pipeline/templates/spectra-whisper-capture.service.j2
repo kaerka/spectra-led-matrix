@@ -1,0 +1,28 @@
+[Unit]
+Description=Spectra ReSpeaker audio capture (chunk writer)
+Documentation=file://{{ repo_paths.spectra_matrix_controller }}/bridges/whisper/README.md
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ spectra_user }}
+Group={{ spectra_group }}
+SupplementaryGroups=audio
+WorkingDirectory={{ repo_paths.whisper_audio_capture }}
+Environment=PYTHONUNBUFFERED=1
+Environment=SPECTRA_DATA_ROOT={{ spectra_data_root }}
+ExecStart={{ whisper_venv }}/bin/python {{ repo_paths.whisper_audio_capture }}/record_respeaker_v2.py \
+  --mode segment \
+  --outdir {{ whisper_capture_outdir }} \
+  --chunk-seconds {{ whisper_chunk_seconds }} \
+  --device "{{ whisper_capture_device }}" \
+  --channels {{ whisper_capture_channels }} \
+  --channel-index {{ whisper_capture_channel_index }} \
+  --encoding wav \
+  --prefix respeaker_v2
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

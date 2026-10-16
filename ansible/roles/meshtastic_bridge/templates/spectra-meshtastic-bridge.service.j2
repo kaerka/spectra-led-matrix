@@ -1,0 +1,20 @@
+[Unit]
+Description=Spectra Meshtastic mesh to MQTT bridge
+Documentation=file://{{ repo_paths.spectra_matrix_controller }}/bridges/meshtastic/README.md
+After=network-online.target meshtasticd.service mosquitto.service
+Wants=network-online.target meshtasticd.service
+
+[Service]
+Type=simple
+User={{ spectra_user }}
+Group={{ spectra_group }}
+WorkingDirectory={{ meshtastic_bridge_dir }}
+Environment=PYTHONUNBUFFERED=1
+Environment=SPECTRA_DATA_ROOT={{ spectra_data_root }}
+Environment=SPECTRA_MESHTASTIC_CONFIG={{ spectra_data_root }}/config/meshtastic-bridge.local.json
+ExecStart={{ meshtastic_venv }}/bin/python {{ meshtastic_bridge_dir }}/bridge.py
+Restart=on-failure
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target

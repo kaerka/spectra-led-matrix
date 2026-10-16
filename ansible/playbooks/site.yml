@@ -1,0 +1,21 @@
+---
+# Full stack: controller + matrix Pis
+- name: Bootstrap spectra user and data layout (controller)
+  import_playbook: bootstrap.yml
+  tags: [bootstrap]
+
+- name: Configure Pi5 controller services
+  import_playbook: controller.yml
+  tags: [controller]
+
+- name: Bootstrap Pi4 SSH (spectra user + keys)
+  import_playbook: bootstrap-pi4.yml
+  tags: [bootstrap-pi4]
+
+- name: Deploy matrix display hosts
+  import_playbook: matrix-pis.yml
+  tags: [matrix-pis]
+
+- name: Health checks
+  import_playbook: health-check.yml
+  tags: [health]

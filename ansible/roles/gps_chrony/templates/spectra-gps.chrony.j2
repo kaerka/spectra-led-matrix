@@ -1,0 +1,13 @@
+# Spectra GPS time — gpsd NMEA via shared memory (does not touch network interfaces)
+refclock SHM 0 refid GPS precision 1e-1 offset {{ chrony_gps_offset }} delay {{ chrony_gps_delay }} poll 0
+
+{% for net in chrony_allow_networks %}
+allow {{ net }}
+{% endfor %}
+
+{% for pool in chrony_fallback_pools %}
+pool {{ pool }} iburst
+{% endfor %}
+
+makestep 1.0 3
+local stratum 10 orphan

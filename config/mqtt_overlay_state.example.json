@@ -1,0 +1,10 @@
+{
+  "overlay_enabled": true,
+  "sources": {
+    "whisper": true,
+    "meshtastic": true,
+    "aether": true,
+    "iris": true,
+    "nightglass": true
+  }
+}

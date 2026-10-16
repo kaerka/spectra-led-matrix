@@ -1,0 +1,58 @@
+---
+- name: Create controller Python venv
+  ansible.builtin.command:
+    cmd: python3 -m venv .venv
+    chdir: "{{ repo_paths.spectra_matrix_controller }}"
+    creates: "{{ repo_paths.spectra_matrix_controller }}/.venv/bin/python"
+
+- name: Install orchestrator Python requirements
+  ansible.builtin.pip:
+    requirements: "{{ repo_paths.spectra_matrix_controller }}/orchestrator/requirements.txt"
+    virtualenv: "{{ repo_paths.spectra_matrix_controller }}/.venv"
+    state: present
+
+- name: Allow spectra user to start/stop Whisper services from orchestrator UI
+  ansible.builtin.template:
+    src: spectra-whisper-toggle.sudoers.j2
+    dest: /etc/sudoers.d/spectra-whisper-toggle
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Deploy orchestrator.local.json
+  ansible.builtin.template:
+    src: orchestrator.local.json.j2
+    dest: "{{ spectra_data_root }}/config/orchestrator.local.json"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "0640"
+  notify: Restart spectra-orchestrator
+
+- name: Install spectra-orchestrator systemd unit
+  ansible.builtin.template:
+    src: spectra-orchestrator.service.j2
+    dest: /etc/systemd/system/spectra-orchestrator.service
+    mode: "0644"
+  notify: Restart spectra-orchestrator
+
+# Compares file mtimes with the service start time rather than this run's rsync
+# output: matrix-pis.yml also syncs the Pi5 repo, so the code may already be in
+# place (and the service stale) by the time this playbook runs.
+- name: Check whether orchestrator code is newer than the running service
+  ansible.builtin.shell: |
+    started=$(systemctl show -p ActiveEnterTimestamp --value spectra-orchestrator)
+    [ -n "$started" ] || exit 0
+    started=$(date -d "$started" +%s)
+    newest=$(find orchestrator display/messages run_orchestrator.py -name '*.py' -printf '%T@\n' | sort -n | tail -1 | cut -d. -f1)
+    [ "${newest:-0}" -gt "$started" ] && echo stale || true
+  args:
+    chdir: "{{ repo_paths.spectra_matrix_controller }}"
+  register: orchestrator_code_check
+  changed_when: "'stale' in orchestrator_code_check.stdout"
+  notify: Restart spectra-orchestrator
+
+- name: Enable and start spectra-orchestrator
+  ansible.builtin.systemd:
+    name: spectra-orchestrator
+    enabled: true
+    state: started
+    daemon_reload: true

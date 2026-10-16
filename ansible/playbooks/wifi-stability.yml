@@ -1,0 +1,6 @@
+---
+- name: Pi5 WiFi and USB stability
+  hosts: controller
+  become: true
+  roles:
+    - wifi_stability

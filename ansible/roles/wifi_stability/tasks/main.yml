@@ -1,0 +1,131 @@
+---
+# Pi5 built-in BCM43455 WiFi + heavy USB (ReSpeaker, Coral, MeshToad) can wedge
+# brcmfmac under load. See docs/HARDWARE.md and /root/dmesg-wifi-crash.log.
+
+- name: Install WiFi / USB stability packages
+  ansible.builtin.apt:
+    name:
+      - iw
+      - wireless-tools
+    state: present
+
+- name: Disable WiFi powersave in NetworkManager
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/wifi-powersave-off.conf
+    mode: "0644"
+    content: |
+      [connection]
+      wifi.powersave = 2
+  notify: Reload NetworkManager
+
+- name: Remove legacy NM powersave filename if present
+  ansible.builtin.file:
+    path: /etc/NetworkManager/conf.d/spectra-wifi-powersave-off.conf
+    state: absent
+  notify: Reload NetworkManager
+
+- name: Disable USB autosuspend for known Spectra USB devices
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/99-spectra-usb-nosuspend.rules
+    mode: "0644"
+    content: |
+      # ReSpeaker, Coral TPU, MeshToad CH341, Logitech Unifying — keep USB fully on
+      ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2886", ATTR{idProduct}=="0018", TEST=="power/control", ATTR{power/control}="on"
+      ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1a6e", ATTR{idProduct}=="089a", TEST=="power/control", ATTR{power/control}="on"
+      ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="5512", TEST=="power/control", ATTR{power/control}="on"
+      ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="046d", ATTR{idProduct}=="c52b", TEST=="power/control", ATTR{power/control}="on"
+      ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0e8d", ATTR{idProduct}=="7612", TEST=="power/control", ATTR{power/control}="on"
+  notify: Reload udev
+
+- name: Raise network backlog for bursty WiFi transfers
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-spectra-wifi.conf
+    mode: "0644"
+    content: |
+      net.core.netdev_max_backlog = 5000
+  notify: Apply sysctl
+
+- name: Install systemd unit to force WiFi power_save off after boot
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/spectra-wifi-powersave-off.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Disable WiFi power save (Spectra USB WiFi stability)
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/sbin/iw dev {{ wifi_interface }} set power_save off
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: Restart spectra-wifi-powersave-off
+
+- name: Mark onboard wlan0 unmanaged in NetworkManager
+  ansible.builtin.copy:
+    dest: /etc/NetworkManager/conf.d/spectra-unmanaged-wlan0.conf
+    mode: "0644"
+    content: |
+      [keyfile]
+      unmanaged-devices=interface-name:wlan0
+  notify: Reload NetworkManager
+  when: controller_disable_onboard_wifi | default(false)
+
+- name: Remove brcmfmac blacklist if present (blacklisting breaks USB on Pi5)
+  ansible.builtin.file:
+    path: /etc/modprobe.d/spectra-blacklist-brcmfmac.conf
+    state: absent
+
+- name: Install systemd unit to keep onboard wlan0 down without unloading brcmfmac
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/spectra-wlan0-down.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Keep Pi5 onboard wlan0 down (brcmfmac must stay loaded for USB)
+      After=network-pre.target NetworkManager.service
+      Before=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/sbin/ip link set wlan0 down
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  when: controller_disable_onboard_wifi | default(false)
+  notify: Restart spectra-wlan0-down
+
+- name: Enable spectra-wlan0-down service
+  ansible.builtin.systemd:
+    name: spectra-wlan0-down
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: controller_disable_onboard_wifi | default(false)
+
+- name: Bring wlan0 down now
+  ansible.builtin.command:
+    cmd: ip link set wlan0 down
+  register: wlan0_down
+  changed_when: wlan0_down.rc == 0
+  failed_when: false
+  when: controller_disable_onboard_wifi | default(false)
+
+- name: Enable spectra-wifi-powersave-off service
+  ansible.builtin.systemd:
+    name: spectra-wifi-powersave-off
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Turn off WiFi power save now (USB WiFi interface)
+  ansible.builtin.command:
+    cmd: iw dev {{ wifi_interface }} set power_save off
+  register: wifi_ps_off
+  changed_when: wifi_ps_off.rc == 0
+  failed_when: false
+  when: wifi_interface is defined

@@ -1,0 +1,15 @@
+---
+# Pi5 controller: Mosquitto, whisper pipeline, meshtastic bridge.
+- name: Configure Pi5 controller services
+  hosts: controller
+  become: true
+  roles:
+    - data_layout
+    - wifi_stability
+    - controller_repo
+    - mosquitto
+    - whisper_pipeline
+    - meshtastic_bridge
+    - gps_hat
+    - gps_chrony
+    - orchestrator

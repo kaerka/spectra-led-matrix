@@ -1,0 +1,31 @@
+---
+- name: Ensure /data exists
+  ansible.builtin.file:
+    path: /data
+    state: directory
+    mode: "0755"
+
+- name: Create spectra data directory tree
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ spectra_data_root }}", mode: "0755" }
+    - { path: "{{ spectra_data_root }}/config", mode: "0750" }
+    - { path: "{{ spectra_data_root }}/repos", mode: "0775" }
+    - { path: "{{ spectra_data_root }}/media/gifs", mode: "0755" }
+    - { path: "{{ spectra_data_root }}/media/mp4", mode: "0755" }
+    - { path: "{{ spectra_data_root }}/audio-capture/chunks", mode: "0755" }
+    - { path: "{{ spectra_data_root }}/audio-capture/transcripts", mode: "0755" }
+    - { path: "{{ spectra_data_root }}/logs", mode: "0755" }
+
+# Login user that runs Ansible / writes under /data/spectra/repos (override in inventory).
+- name: Add deploy user to spectra group for deploy writes
+  ansible.builtin.user:
+    name: "{{ spectra_deploy_user | default(ansible_user) }}"
+    groups: spectra
+    append: true
+  when: (spectra_deploy_user | default(ansible_user) | default('')) | length > 0

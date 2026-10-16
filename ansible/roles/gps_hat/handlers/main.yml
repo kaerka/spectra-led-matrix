@@ -1,0 +1,6 @@
+---
+- name: Reboot for GPS UART
+  ansible.builtin.shell: /usr/sbin/shutdown -r +1 "Spectra GPS UART0 enabled (ttyAMA0)"
+  async: 1
+  poll: 0
+  changed_when: true

@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "timezone": "UTC",
+  "check_interval_seconds": 30,
+  "steps": [
+    {
+      "time": "06:00",
+      "brightness": 80
+    },
+    {
+      "time": "07:00",
+      "brightness": 100
+    },
+    {
+      "time": "22:00",
+      "brightness": 50
+    },
+    {
+      "time": "23:00",
+      "brightness": 20
+    }
+  ]
+}

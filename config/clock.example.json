@@ -1,0 +1,33 @@
+{
+  "title": "WORLD CLOCK",
+  "blink": true,
+  "zones": [
+    {
+      "label": "HOME",
+      "tz": "UTC",
+      "color": [
+        0,
+        255,
+        102
+      ]
+    },
+    {
+      "label": "WEST",
+      "tz": "America/Los_Angeles",
+      "color": [
+        255,
+        128,
+        0
+      ]
+    },
+    {
+      "label": "EAST",
+      "tz": "Europe/Berlin",
+      "color": [
+        255,
+        48,
+        48
+      ]
+    }
+  ]
+}

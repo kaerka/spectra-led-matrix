@@ -1,0 +1,10 @@
+faster-whisper>=1.0.0
+paho-mqtt>=2.0.0
+numpy>=1.22
+sounddevice>=0.4.6
+argostranslate>=1.9.0
+
+# translate_engine "ct2" (Dragon Q6A). sentencepiece alone tokenises opus-mt
+# models, which keeps torch/transformers out of the venv.
+ctranslate2>=4.0
+sentencepiece>=0.2.0

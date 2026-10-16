@@ -1,0 +1,125 @@
+---
+- name: Install rgbmatrix build dependencies
+  ansible.builtin.apt:
+    name:
+      - python3-pil
+      - python3-dev
+      - cython3
+      - build-essential
+      - python3-pip
+      - python3-venv
+      - git
+      - pkg-config
+    state: present
+    update_cache: true
+
+- name: Check whether rgbmatrix bindings are built
+  ansible.builtin.stat:
+    path: "{{ repo_paths.rpi_rgb_led_matrix }}/bindings/python/rgbmatrix/core.cpython-311-aarch64-linux-gnu.so"
+  register: rgbmatrix_built
+
+- name: Check for a local rgbmatrix checkout under the deploy user's home
+  ansible.builtin.stat:
+    path: "{{ ansible_env.HOME }}/spectra-led-matrix/rpi-rgb-led-matrix/.git"
+  register: local_rgbmatrix_home
+
+- name: Seed rgbmatrix from a local spectra-led-matrix checkout
+  ansible.builtin.command:
+    cmd: >-
+      rsync -a {{ ansible_env.HOME }}/spectra-led-matrix/rpi-rgb-led-matrix/
+      {{ repo_paths.rpi_rgb_led_matrix }}/
+  when:
+    - local_rgbmatrix_home.stat.exists
+    - not rgbmatrix_built.stat.exists
+
+- name: Mark rgbmatrix repo as safe for git
+  ansible.builtin.command:
+    cmd: git config --global --add safe.directory {{ repo_paths.rpi_rgb_led_matrix }}
+  changed_when: false
+  failed_when: false
+  when: not rgbmatrix_built.stat.exists
+
+- name: Clone rpi-rgb-led-matrix
+  ansible.builtin.git:
+    repo: "{{ repo_urls.rpi_rgb_led_matrix }}"
+    dest: "{{ repo_paths.rpi_rgb_led_matrix }}"
+    version: master
+    update: true
+  when:
+    - not legacy_rgbmatrix_led.stat.exists
+    - not legacy_rgbmatrix_home.stat.exists
+    - not rgbmatrix_built.stat.exists
+
+- name: Set rgbmatrix repo ownership
+  ansible.builtin.file:
+    path: "{{ repo_paths.rpi_rgb_led_matrix }}"
+    owner: "{{ spectra_user }}"
+    group: "{{ spectra_group }}"
+    recurse: false
+
+- name: Build rgbmatrix Python bindings
+  ansible.builtin.command:
+    cmd: make build-python PYTHON=python3
+    chdir: "{{ repo_paths.rpi_rgb_led_matrix }}"
+  when: not rgbmatrix_built.stat.exists
+  args:
+    creates: "{{ repo_paths.rpi_rgb_led_matrix }}/bindings/python/rgbmatrix/core.cpython-311-aarch64-linux-gnu.so"
+
+- name: Install video-viewer build dependencies
+  ansible.builtin.apt:
+    name:
+      - libavcodec-dev
+      - libavformat-dev
+      - libswscale-dev
+      - libavdevice-dev
+    state: present
+
+- name: Build video-viewer (MP4 playback)
+  ansible.builtin.command:
+    cmd: make video-viewer
+    chdir: "{{ repo_paths.rpi_rgb_led_matrix }}/utils"
+    creates: "{{ repo_paths.rpi_rgb_led_matrix }}/utils/video-viewer"
+
+- name: Blacklist snd_bcm2835 for flicker-free PWM
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/rgb-matrix-blacklist.conf
+    content: "blacklist snd_bcm2835\n"
+    mode: "0644"
+
+- name: Disable onboard audio in boot config
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    regexp: '^dtparam=audio='
+    line: "dtparam=audio=off"
+    create: false
+  register: audio_config
+  failed_when: false
+
+- name: Reboot if audio config changed
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+  when: audio_config is changed
+
+- name: Set CPU governor to performance
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/spectra-performance-governor.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Set CPU governor to performance for LED matrix
+      After=multi-user.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do echo performance > "$g"; done'
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable performance governor service
+  ansible.builtin.systemd:
+    name: spectra-performance-governor
+    enabled: true
+    state: started
+    daemon_reload: true
