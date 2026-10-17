@@ -22,6 +22,9 @@ Live demos — playlist: **[LED Matrixes](https://www.youtube.com/playlist?list=
 | Video | Link |
 | --- | --- |
 | Mini panel → dual wall walkthrough | [Watch](https://youtu.be/w0ZgrCWmPL4) |
+| Shall We Play a Game? (WOPR dual-wall) | [Short](https://youtube.com/shorts/HeeBSYaWDfs) |
+| TV static | [Short](https://youtube.com/shorts/gFc4Zd-nouA) |
+| Snake | [Short](https://youtube.com/shorts/UUvI5lTUKP4) |
 | Sparkle, matrix rain & lava lamp | [Short](https://youtube.com/shorts/bsfv5x9dP8c) |
 | Sparkle & lava lamp | [Short](https://youtube.com/shorts/wsMO1CcpWjs) |
 | Rainbow & matrix rain | [Short](https://youtube.com/shorts/Oy9IgHbI8sE) |
