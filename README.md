@@ -22,6 +22,7 @@ Live demos — playlist: **[LED Matrixes](https://www.youtube.com/playlist?list=
 | Video | Link |
 | --- | --- |
 | Mini panel → dual wall walkthrough | [Watch](https://youtu.be/w0ZgrCWmPL4) |
+| How About a Nice Game of Chess? | [Short](https://youtube.com/shorts/RGBXRsVPy1U) |
 | Shall We Play a Game? (WOPR dual-wall) | [Short](https://youtube.com/shorts/HeeBSYaWDfs) |
 | TV static | [Short](https://youtube.com/shorts/gFc4Zd-nouA) |
 | Snake | [Short](https://youtube.com/shorts/UUvI5lTUKP4) |
