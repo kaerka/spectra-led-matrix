@@ -86,6 +86,30 @@ def _lava_lamp_mode():
     return LavaLampMode()
 
 
+def _tv_static_mode():
+    from display.modes.tv_static import TvStaticMode
+
+    return TvStaticMode()
+
+
+def _snake_mode():
+    from display.modes.snake import SnakeMode
+
+    return SnakeMode()
+
+
+def _wopr_mode():
+    from display.modes.wopr import WoprMode
+
+    return WoprMode()
+
+
+def _gtw_mode():
+    from display.modes.gtw import GtwMode
+
+    return GtwMode()
+
+
 MODES: Dict[str, ModeInfo] = {
     "weather": ModeInfo(
         id="weather",
@@ -96,7 +120,7 @@ MODES: Dict[str, ModeInfo] = {
     "world_clock": ModeInfo(
         id="world_clock",
         label="World clock",
-        description="Multiple time zones on the full panel (cities from clock.local.json).",
+        description="Three time zones (US East, Amsterdam, SPB) on the full panel.",
         factory=_world_clock_mode,
     ),
     "analog_clock": ModeInfo(
@@ -158,6 +182,30 @@ MODES: Dict[str, ModeInfo] = {
         label="Lava lamp",
         description="Wax blobs rising and sinking; pick speed, wax and liquid colours.",
         factory=_lava_lamp_mode,
+    ),
+    "tv_static": ModeInfo(
+        id="tv_static",
+        label="TV static",
+        description="No-signal CRT: noise, scanlines, roll bar, vignette.",
+        factory=_tv_static_mode,
+    ),
+    "snake": ModeInfo(
+        id="snake",
+        label="Snake",
+        description="Self-playing snake; restarts on win or death.",
+        factory=_snake_mode,
+    ),
+    "wopr": ModeInfo(
+        id="wopr",
+        label="WOPR tic-tac-toe",
+        description="Computer vs computer, perfect play — every game a draw. Faster and faster.",
+        factory=_wopr_mode,
+    ),
+    "gtw": ModeInfo(
+        id="gtw",
+        label="WOPR: Global Conflict Simulation",
+        description="Absurd random launches on a crude CRT world map. Winner: none possible.",
+        factory=_gtw_mode,
     ),
 }
 

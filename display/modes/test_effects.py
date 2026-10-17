@@ -1,4 +1,4 @@
-"""Procedural effects: rainbow, sparkle, lava lamp."""
+"""Procedural effects: rainbow, sparkle, lava lamp, TV static, snake, WOPR."""
 
 from __future__ import annotations
 
@@ -14,9 +14,21 @@ from display.modes.effect_config import (
 )
 from display.modes.lava_lamp import LavaLampField
 from display.modes.rainbow import RainbowField
+from display.modes.gtw import GtwField, _SITES
+from display.modes.snake import SnakeField
 from display.modes.sparkle import SparkleField, lamp_cell
+from display.modes.tv_static import TvStaticField
+from display.modes.wopr import WoprField, _minimax, _winner
 
-FIELDS = {"rainbow": RainbowField, "sparkle": SparkleField, "lava_lamp": LavaLampField}
+FIELDS = {
+    "rainbow": RainbowField,
+    "sparkle": SparkleField,
+    "lava_lamp": LavaLampField,
+    "tv_static": TvStaticField,
+    "snake": SnakeField,
+    "wopr": WoprField,
+    "gtw": GtwField,
+}
 SIZES = [(64, 64), (128, 64), (192, 192)]
 
 
@@ -24,7 +36,8 @@ def test_defaults_resolve():
     for mode_id, spec in EFFECTS.items():
         s = resolve_effect(mode_id, None)
         assert s.palette == spec.default_palette
-        assert s.gain == spec.gains[-1]
+        bright = next(o.default for o in spec.options if o.key == "brightness")
+        assert s.gain == spec.gains[bright]
         assert set(s.values) == {o.key for o in spec.options}
 
 
@@ -86,3 +99,48 @@ def test_sparkle_density_and_blink_colours():
     assert 0.2 < f.on.mean() < 0.5
     assert (f.color == colours).all()  # blink keeps one colour per lamp
     assert lamp_cell(2, 192, 192) == 16 and lamp_cell(1, 64, 64) == 2
+
+
+def test_wopr_perfect_play_draws():
+    # Empty board and every first-move reply stay draw-optimal.
+    score, move = _minimax((0,) * 9, 1)
+    assert score == 0 and move in (0, 1, 2, 3, 4, 5, 6, 7, 8)
+    board = [0] * 9
+    player = 1
+    for _ in range(9):
+        _, m = _minimax(tuple(board), player)
+        board[m] = player
+        player = -player
+        if _winner(tuple(board)):
+            pytest.fail("perfect play produced a win")
+    assert all(board)
+
+
+def test_snake_eats_and_grows():
+    f = SnakeField(64, 64, resolve_effect("snake", {"speed": 3, "grid": 2}), seed=0)
+    start_len = len(f.body)
+    for i in range(400):
+        f.frame(i * 0.05, 0.05)
+        if len(f.body) > start_len:
+            break
+    assert len(f.body) > start_len
+
+
+def test_gtw_launches_and_ends():
+    f = GtwField(64, 64, resolve_effect("gtw", {"speed": 3, "parable": 2}), seed=1)
+    assert len(_SITES) >= 20
+    assert f.arc_dur >= 3.0
+    saw_launch = saw_end = False
+    airborne = 0
+    for i in range(2000):
+        frame = f.frame(i * 0.05, 0.05)
+        if f._round.launches > 0:
+            saw_launch = True
+        in_flight = sum(1 for a in f._round.arcs if (i * 0.05 - a.t0) < a.dur)
+        airborne = max(airborne, in_flight)
+        if f._round.ending and i * 0.05 >= f._round.end_until - 3.0:
+            saw_end = True
+            break
+    assert saw_launch and saw_end
+    assert airborne >= 3
+    assert frame.shape == (64, 64, 3)

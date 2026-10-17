@@ -46,6 +46,10 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 | **Rainbow** | Diagonal colour bands; palettes, direction, speed, brightness |
 | **Sparkle** | Blinkenlights — twinkle or blink, pixels or lamps |
 | **Lava lamp** | Metaball wax blobs; wax / liquid colours, speed, blob count |
+| **TV static** | No-signal CRT noise, scanlines, roll bar, vignette |
+| **Snake** | Self-playing BFS snake; restarts on win or death |
+| **WOPR tic-tac-toe** | Perfect-play draws, accelerating pace, strange-game card |
+| **WOPR: Global Conflict Simulation** | Crude CRT world map, absurd launches, military-bureaucracy parables |
 | **Media** | Full-screen GIF (in-process) or MP4 via hzeller `video-viewer` |
 
 ### Overlays & scheduling
