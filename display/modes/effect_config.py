@@ -200,6 +200,34 @@ EFFECTS: Dict[str, EffectSpec] = {
         ),
         gains=(0.25, 0.50, 0.75, 1.0),
     ),
+    "tron": EffectSpec(
+        mode_id="tron",
+        title="Tron light cycles",
+        hint="AI light cycles leave walls until they crash. Classic orange vs blue.",
+        palettes={
+            # Defaults: Bike 1 orange, Bike 2 blue; extras for 3–5 players.
+            "classic": (
+                (255, 140, 20), (40, 160, 255), (0, 255, 220), (255, 60, 200), (180, 255, 40),
+            ),
+            "neon": (
+                (255, 0, 200), (0, 255, 255), (255, 255, 0), (120, 0, 255), (0, 255, 100),
+            ),
+            "ice": (
+                (220, 240, 255), (80, 160, 255), (160, 220, 255), (255, 255, 255), (100, 200, 255),
+            ),
+            "sunset": (
+                (255, 80, 20), (255, 180, 40), (255, 60, 120), (180, 40, 255), (255, 220, 100),
+            ),
+        },
+        default_palette="classic",
+        color_labels=("Bike 1", "Bike 2", "Bike 3", "Bike 4", "Bike 5"),
+        options=(
+            EffectOption("bikes", "Bikes", ("2", "3", "4", "5"), 0),
+            EffectOption("speed", "Speed", ("Slow", "Normal", "Fast", "Warp"), 1),
+            _brightness(),
+        ),
+        gains=(0.20, 0.45, 0.70, 1.0),
+    ),
 }
 
 EFFECT_MODE_IDS: Tuple[str, ...] = tuple(EFFECTS)

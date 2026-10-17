@@ -110,6 +110,12 @@ def _gtw_mode():
     return GtwMode()
 
 
+def _tron_mode():
+    from display.modes.tron import TronMode
+
+    return TronMode()
+
+
 MODES: Dict[str, ModeInfo] = {
     "weather": ModeInfo(
         id="weather",
@@ -206,6 +212,12 @@ MODES: Dict[str, ModeInfo] = {
         label="WOPR: Global Conflict Simulation",
         description="Absurd random launches on a crude CRT world map. Winner: none possible.",
         factory=_gtw_mode,
+    ),
+    "tron": ModeInfo(
+        id="tron",
+        label="Tron light cycles",
+        description="AI light cycles leave walls until they crash. Classic orange vs blue.",
+        factory=_tron_mode,
     ),
 }
 

@@ -17,6 +17,7 @@ from display.modes.rainbow import RainbowField
 from display.modes.gtw import GtwField, _SITES
 from display.modes.snake import SnakeField
 from display.modes.sparkle import SparkleField, lamp_cell
+from display.modes.tron import TronField
 from display.modes.tv_static import TvStaticField
 from display.modes.wopr import WoprField, _minimax, _winner
 
@@ -28,6 +29,7 @@ FIELDS = {
     "snake": SnakeField,
     "wopr": WoprField,
     "gtw": GtwField,
+    "tron": TronField,
 }
 SIZES = [(64, 64), (128, 64), (192, 192)]
 
@@ -157,3 +159,22 @@ def test_gtw_launches_and_ends():
     assert airborne >= 3
     assert max_hold >= 80  # ~4s at 0.05s/frame
     assert frame.shape == (64, 64, 3)
+
+
+def test_tron_runs_and_crashes():
+    f = TronField(64, 64, resolve_effect("tron", {"bikes": 3, "speed": 3}), seed=2)
+    assert f.n_bikes == 5
+    assert len(f.bikes) == 5
+    saw_trail = False
+    for i in range(400):
+        frame = f.frame(i * 0.03, 0.03)
+        if (f.trail > 0).sum() > f.n_bikes:
+            saw_trail = True
+        if sum(1 for b in f.bikes if b.alive) <= 1 or f._pause > 0:
+            break
+    assert saw_trail
+    assert frame.shape == (64, 64, 3) and frame.max() > 0
+    # Classic palette: bike 1 orange-ish, bike 2 blue-ish.
+    s = resolve_effect("tron", None)
+    assert s.stops[0][0] > s.stops[0][2]
+    assert s.stops[1][2] > s.stops[1][0]

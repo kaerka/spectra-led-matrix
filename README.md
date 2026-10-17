@@ -54,6 +54,7 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 | **Snake** | Self-playing BFS snake; restarts on win or death |
 | **WOPR tic-tac-toe** | Perfect-play draws, accelerating pace, strange-game card |
 | **WOPR: Global Conflict Simulation** | CRT world map, slow overlapping missile arcs, ~5s teletype/parables, long chaotic rounds |
+| **Tron light cycles** | 2–5 AI bikes, classic orange/blue (+ custom colours), four speeds |
 | **Media** | Full-screen GIF (in-process) or MP4 via hzeller `video-viewer` |
 
 ### Overlays & scheduling
