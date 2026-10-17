@@ -53,7 +53,7 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 | **TV static** | No-signal CRT noise, scanlines, roll bar, vignette |
 | **Snake** | Self-playing BFS snake; restarts on win or death |
 | **WOPR tic-tac-toe** | Perfect-play draws, accelerating pace, strange-game card |
-| **WOPR: Global Conflict Simulation** | Crude CRT world map, absurd launches, military-bureaucracy parables |
+| **WOPR: Global Conflict Simulation** | CRT world map, slow overlapping missile arcs, ~5s teletype/parables, long chaotic rounds |
 | **Media** | Full-screen GIF (in-process) or MP4 via hzeller `video-viewer` |
 
 ### Overlays & scheduling

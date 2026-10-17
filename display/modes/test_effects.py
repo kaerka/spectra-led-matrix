@@ -132,15 +132,28 @@ def test_gtw_launches_and_ends():
     assert f.arc_dur >= 3.0
     saw_launch = saw_end = False
     airborne = 0
-    for i in range(2000):
+    held = None
+    hold_frames = max_hold = 0
+    for i in range(5000):
         frame = f.frame(i * 0.05, 0.05)
         if f._round.launches > 0:
             saw_launch = True
         in_flight = sum(1 for a in f._round.arcs if (i * 0.05 - a.t0) < a.dur)
         airborne = max(airborne, in_flight)
+        # Teletype / parable should stick ~5s (not flicker every launch).
+        showing = f._round.parable if (
+            f._round.parable and i * 0.05 < f._round.parable_until
+        ) else f._round.teletype
+        if held == showing:
+            hold_frames += 1
+        else:
+            max_hold = max(max_hold, hold_frames)
+            held, hold_frames = showing, 1
         if f._round.ending and i * 0.05 >= f._round.end_until - 3.0:
             saw_end = True
             break
+    max_hold = max(max_hold, hold_frames)
     assert saw_launch and saw_end
     assert airborne >= 3
+    assert max_hold >= 80  # ~4s at 0.05s/frame
     assert frame.shape == (64, 64, 3)

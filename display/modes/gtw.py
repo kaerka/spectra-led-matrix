@@ -13,11 +13,14 @@ from display.modes.effect_base import EffectField, EffectMode
 # Pace = seconds between launches (kept shorter than flight so many arcs overlap).
 _BASE_PACE = (1.15, 0.85, 0.65, 0.48)
 _PARABLE_CHANCE = (0.10, 0.28, 0.50)
-_END_HOLD = 3.4
-_PARABLE_HOLD = 2.2
+_END_HOLD = 4.5
+# Teletype / parable lines stay long enough to read.
+_TEXT_HOLD = 5.0
+_PARABLE_HOLD = 5.0
 # Flight time to target (Think…Blitz) — slow CRT tracks, several in the air.
 _ARC_DUR = (5.0, 4.2, 3.6, 3.0)
-_MAX_LAUNCHES = 22
+# Long rounds even on Blitz (~0.5s cadence × 60 ≈ 30s of launches + flights).
+_MAX_LAUNCHES = 60
 
 # Distinct marker hues — assigned by site index, not geography (no alliances).
 _SITE_HUES = (
@@ -174,6 +177,8 @@ class _Round:
     arcs: list[_Arc] = field(default_factory=list)
     last_target: int | None = None
     teletype: str = "SIMULATION ONLINE"
+    text_until: float = _TEXT_HOLD
+    pending_teletype: str | None = None
     parable: str | None = None
     parable_until: float = -1.0
     ending: bool = False
@@ -251,6 +256,23 @@ class GtwField(EffectField):
             best_i1 = (i0 + 1 + int(self.rng.integers(0, n - 1))) % n
         return i0, best_i1
 
+    def _set_teletype(self, t: float, line: str) -> None:
+        """Show ``line`` now, or queue it if the current line still has hold time."""
+        rnd = self._round
+        if t >= rnd.text_until and t >= rnd.parable_until:
+            rnd.teletype = line
+            rnd.text_until = t + _TEXT_HOLD
+            rnd.pending_teletype = None
+        else:
+            rnd.pending_teletype = line
+
+    def _drain_teletype(self, t: float) -> None:
+        rnd = self._round
+        if rnd.pending_teletype and t >= rnd.text_until and t >= rnd.parable_until:
+            rnd.teletype = rnd.pending_teletype
+            rnd.pending_teletype = None
+            rnd.text_until = t + _TEXT_HOLD
+
     def _launch(self, t: float) -> None:
         i0, i1 = self._pick_pair()
         self._round.arcs.append(
@@ -259,19 +281,21 @@ class GtwField(EffectField):
         self._round.last_target = i1
         self._round.launches += 1
         a, b = _SITES[i0][0], _SITES[i1][0]
-        self._round.teletype = f"LAUNCH: {a} -> {b}"
+        self._set_teletype(t, f"LAUNCH: {a} -> {b}")
         # Mild acceleration — stay well under flight time so arcs stack up.
         factor = max(0.50, 0.96 ** self._round.launches)
         self._round.next_at = t + max(0.35, self.pace * factor)
-        if self.rng.random() < self.parable_chance:
+        if self.rng.random() < self.parable_chance and t >= self._round.parable_until:
             self._round.parable = _PARABLES[int(self.rng.integers(0, len(_PARABLES)))]
             self._round.parable_until = t + _PARABLE_HOLD
+            # Keep launch line queued underneath the parable.
+            self._round.text_until = max(self._round.text_until, self._round.parable_until)
         if self._round.launches >= _MAX_LAUNCHES:
             self._round.ending = True
             self._round.end_until = t + self.arc_dur + 0.8 + _END_HOLD
 
     def _reset(self) -> None:
-        self._round = _Round(next_at=0.5)
+        self._round = _Round(next_at=0.5, text_until=_TEXT_HOLD)
         self._hit[:] = 0
 
     def _render_map(self, t: float) -> Image.Image:
@@ -370,6 +394,7 @@ class GtwField(EffectField):
                     return np.asarray(self._render_end(), dtype=np.uint8)
         if not rnd.ending and t >= rnd.next_at:
             self._launch(t)
+        self._drain_teletype(t)
         # Drop finished arcs that are done blooming (keep hits).
         rnd.arcs = [a for a in rnd.arcs if t <= a.bloom_until + 0.01 or (t - a.t0) < a.dur]
         return np.asarray(self._render_map(t), dtype=np.uint8)
