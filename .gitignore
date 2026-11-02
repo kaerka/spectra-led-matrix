@@ -17,6 +17,8 @@ config/mqtt_purge.json
 # --- Secrets / local config (never commit) ---
 config/secrets.local.json
 config/display_state.json
+config/rotation.json
+config/rotation.json.tmp
 *.local.json
 *.local.toml
 

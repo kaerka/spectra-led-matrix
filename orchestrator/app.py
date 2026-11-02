@@ -18,6 +18,7 @@ from orchestrator import messages as custom_messages
 from orchestrator.messages_ui import MESSAGES_CSS, MESSAGES_HTML, MESSAGES_JS
 from display.modes.effect_config import EFFECT_MODE_IDS
 from web.effect_ui import EFFECT_CSS, EFFECT_JS
+from web.rotation_ui import ROTATION_CSS, ROTATION_JS
 from orchestrator import mqtt_purge, offload_control, whisper_control
 from orchestrator.self_test import get_runner as get_self_test_runner
 
@@ -281,6 +282,16 @@ def api_host_effect_get(host_id: str, mode_id: str) -> dict[str, Any]:
 @app.put("/api/hosts/{host_id}/mode/{mode_id}/effect")
 def api_host_effect_set(host_id: str, mode_id: str, body: dict = Body(...)) -> dict[str, Any]:
     return _effect_result(_client_for(host_id).set_effect_config(mode_id, body))
+
+
+@app.get("/api/hosts/{host_id}/rotation")
+def api_host_rotation_get(host_id: str) -> dict[str, Any]:
+    return _effect_result(_client_for(host_id).get_rotation())
+
+
+@app.put("/api/hosts/{host_id}/rotation")
+def api_host_rotation_set(host_id: str, body: dict = Body(...)) -> dict[str, Any]:
+    return _effect_result(_client_for(host_id).set_rotation(body))
 
 
 @app.put("/api/hosts/{host_id}/mode/{mode_id}/config")
@@ -555,6 +566,7 @@ def dashboard() -> str:
       <h2><span>{host.label}</span><span class="badge" data-host="{host.id}">…</span></h2>
       <p class="status-line">Mode: <strong data-field="mode">—</strong>
         <span data-field="media"></span></p>
+      <div class="rotation-box" data-rotation-panel="{host.id}" style="margin-bottom:0.75rem"><em>Loading…</em></div>
       <div class="mode-grid host-modes" data-host="{host.id}"></div>
       <div class="wall-flame-panel" data-fire-panel="{host.id}" style="display:none;margin-top:0.75rem">
         <p class="hint" data-fire-title="{host.id}" style="margin:0 0 0.35rem">Fire colors ({host.label})</p>
@@ -770,6 +782,7 @@ def dashboard() -> str:
     .flame-intensity button.active {{ border-color: #5f9cff; background: #152033; }}
 {MESSAGES_CSS}
 {EFFECT_CSS}
+{ROTATION_CSS}
   </style>
 </head>
 <body>
@@ -1419,6 +1432,40 @@ def dashboard() -> str:
       finally {{ wallEffectBusy[hostId] = false; }}
     }}
 
+{ROTATION_JS}
+    const wallRotationBusy = {{}};
+
+    function rotationEl(hostId) {{
+      return document.querySelector(`[data-rotation-panel="${{hostId}}"]`);
+    }}
+
+    async function loadWallRotation(hostId, force) {{
+      const el = rotationEl(hostId);
+      if (!el) return;
+      const res = await fetch(`/api/hosts/${{hostId}}/rotation`);
+      if (!res.ok) {{ el.innerHTML = "<em>Auto-rotate unavailable</em>"; delete el.dataset.cfg; return; }}
+      renderRotationPanel(el, await res.json(), (patch, label) => saveWallRotation(hostId, patch, label), force);
+    }}
+
+    async function saveWallRotation(hostId, patch, label) {{
+      if (wallRotationBusy[hostId]) return;
+      wallRotationBusy[hostId] = true;
+      try {{
+        const res = await fetch(`/api/hosts/${{hostId}}/rotation`, {{
+          method: "PUT",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify(patch),
+        }});
+        const data = await res.json().catch(() => ({{}}));
+        if (!res.ok) throw new Error(data.detail || "failed");
+        renderRotationPanel(rotationEl(hostId), data, (p, l) => saveWallRotation(hostId, p, l), true);
+        showToast(`${{hostId}} · ${{label}}`);
+      }} catch (e) {{
+        showToast(String(e.message || e));
+        await loadWallRotation(hostId, true).catch(() => {{}});
+      }} finally {{ wallRotationBusy[hostId] = false; }}
+    }}
+
     async function loadModes() {{
       const res = await fetch("/api/modes");
       if (!res.ok) throw new Error("modes unavailable");
@@ -1501,6 +1548,9 @@ def dashboard() -> str:
         updateWallStarPanels(health.hosts);
         updateWallRainPanels(health.hosts);
         updateWallEffectPanels(health.hosts);
+        for (const hostId of HOST_IDS) {{
+          loadWallRotation(hostId).catch(e => console.error(e));
+        }}
         for (const hostId of HOST_IDS) {{
           const host = (health.hosts || []).find(h => h.id === hostId);
           const mode = host?.state?.active_mode;

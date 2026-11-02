@@ -13,6 +13,7 @@ from display.messages.overlay import CustomMessageOverlay
 from display.modes.media import MediaMode
 from display.modes.registry import create_mode
 from display.mqtt.overlay import MqttOverlay
+from display.rotation import Rotator
 from display.state import DEFAULT_MODE, load_state
 from display.video_handoff import VIDEO_HANDOFF_EXIT
 
@@ -77,6 +78,8 @@ def run_display_loop() -> None:
     mqtt = MqttOverlay.load_from_config()
     mqtt.start()
     messages = CustomMessageOverlay(schedule.timezone, CANVAS_W, CANVAS_H)
+    rotator = Rotator()
+    next_rotation_check = 0.0
 
     print("Display runner started. Switch modes via the web UI.", flush=True)
     if schedule.enabled:
@@ -104,6 +107,12 @@ def run_display_loop() -> None:
                 continue
 
             state = load_state()
+            if time.monotonic() >= next_rotation_check:
+                next_rotation_check = time.monotonic() + 1.0
+                picked = rotator.maybe_rotate(state)
+                if picked:
+                    print(f"Auto-rotate: {state.active_mode!r} -> {picked!r}", flush=True)
+                    state = load_state()
             key = _state_key(state)
 
             if key != active_key:

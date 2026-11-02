@@ -42,8 +42,10 @@ from display.mqtt.overlay import load_mqtt_config
 from display.mqtt.purge import request_purge as request_mqtt_purge
 from display.mqtt.settings import load_overlay_settings, update_overlay_settings
 from display.mqtt.sources import SOURCE_CATALOG, wall_source_ids
+from display.rotation import rotation_for_api, update_rotation
 from display.state import load_state, set_active_mode, set_media_path, set_mode_config
 from web.effect_ui import EFFECT_CSS, EFFECT_JS
+from web.rotation_ui import ROTATION_CSS, ROTATION_JS
 
 app = FastAPI(title="Spectra Matrix Controller", version="0.2.0")
 
@@ -292,6 +294,7 @@ def control_panel() -> str:
     }}
     .flame-intensity button.active {{ border-color: #5f9cff; background: #152033; }}
 {EFFECT_CSS}
+{ROTATION_CSS}
   </style>
 </head>
 <body>
@@ -300,6 +303,7 @@ def control_panel() -> str:
     Active mode: <strong id="active-mode">{state.active_mode}</strong>
     <span id="active-media"></span>
   </p>
+  <div class="flame-panel" id="rotation-panel" style="margin-bottom:1rem"><em>Loading…</em></div>
   <div class="grid mode-grid">
     {"".join(cards)}
   </div>
@@ -421,6 +425,7 @@ def control_panel() -> str:
         setModeActive(data.active_mode);
         if (data.media_path) updateMediaHighlight(data.media_path);
         showToast(`Switched to ${{data.active_mode}}`);
+        loadRotation();
       }});
     }});
 
@@ -981,7 +986,49 @@ def control_panel() -> str:
       }}
     }}
 
+{ROTATION_JS}
+    const rotationPanel = document.getElementById("rotation-panel");
+    let rotationBusy = false;
+
+    function applyRotation(data, force) {{
+      renderRotationPanel(rotationPanel, data, saveRotation, force);
+      if (data.active_mode && data.active_mode !== activeEl.textContent) setModeActive(data.active_mode);
+    }}
+
+    async function loadRotation() {{
+      try {{
+        const res = await fetch("/api/rotation");
+        if (res.ok) applyRotation(await res.json());
+      }} catch (e) {{
+        console.error(e);
+      }}
+    }}
+
+    async function saveRotation(patch, label) {{
+      if (rotationBusy) return;
+      rotationBusy = true;
+      try {{
+        const res = await fetch("/api/rotation", {{
+          method: "PUT",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify(patch),
+        }});
+        const data = await res.json().catch(() => ({{}}));
+        if (!res.ok) throw new Error(data.detail || "update failed");
+        applyRotation(data, true);
+        showToast(`Auto-rotate · ${{label}}`);
+      }} catch (e) {{
+        showToast(String(e.message || e));
+        const res = await fetch("/api/rotation");
+        if (res.ok) applyRotation(await res.json(), true);
+      }} finally {{
+        rotationBusy = false;
+      }}
+    }}
+
     setModeActive({json.dumps(state.active_mode)});
+    loadRotation();
+    setInterval(loadRotation, 10000);
   </script>
 </body>
 </html>"""
@@ -1272,6 +1319,20 @@ def api_preview_message(body: dict = Body(...)) -> dict:
 def api_clear_preview() -> dict:
     clear_preview()
     return _messages_response()
+
+
+@app.get("/api/rotation")
+def api_get_rotation() -> dict:
+    return rotation_for_api(load_state())
+
+
+@app.put("/api/rotation")
+def api_set_rotation(body: dict = Body(...)) -> dict:
+    try:
+        update_rotation(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return rotation_for_api(load_state())
 
 
 def _state_response(state) -> StateResponse:

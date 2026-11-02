@@ -73,11 +73,13 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 - **MQTT overlay** — temporary captions (Whisper, Meshtastic, and optional `custom/#` topics)
 - **Custom messages** — 1–3 line scheduled text with live preview sizes
 - **Night dim** — brightness steps by time of day
+- **Auto-rotate** — per-display toggle that shuffles through a chosen set of modes every 1 min – 1 hr (default 5 min); any manual change restarts the countdown
 
 ### Controller dashboard (optional Pi 5)
 
 - Sync both walls or control each host at `:8090`
 - Per-wall colour / speed panels for fire, starfield, rain, rainbow, sparkle, lava lamp
+- Per-wall auto-rotate controls (on/off, interval, mode pool)
 - Whisper on/off, purge queue, health, MQTT test, self-test
 - Custom message editor with 192×192 / 64×64 / 64×48 preview
 

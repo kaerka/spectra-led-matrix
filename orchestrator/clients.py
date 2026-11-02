@@ -141,6 +141,17 @@ class MatrixHostClient:
             headers={"Content-Type": "application/json"},
         )
 
+    def get_rotation(self) -> HostResult:
+        return self._request("GET", "/api/rotation")
+
+    def set_rotation(self, payload: dict[str, Any]) -> HostResult:
+        return self._request(
+            "PUT",
+            "/api/rotation",
+            json=payload,
+            headers={"Content-Type": "application/json"},
+        )
+
     def purge_mqtt(self) -> HostResult:
         return self._request("POST", "/api/mqtt/purge")
 
