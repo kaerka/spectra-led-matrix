@@ -64,7 +64,17 @@ _COUNT_BY_INTENSITY = (48, 120, 220, 360)
 _SPEED_BY_INTENSITY = (0.55, 1.0, 1.55, 2.2)
 _GAIN_BY_INTENSITY = (0.18, 0.75, 0.90, 1.0)
 _MAX_RADIUS_BY_INTENSITY = (1.2, 1.8, 2.4, 3.0)
-_TRAIL_BY_INTENSITY = (0, 1, 1, 2)  # extra pixels behind motion
+_TRAIL_BY_INTENSITY = (0, 1, 1, 2)  # default trail choice when none is stored
+
+# Extra button rows; stored as ints under these keys in mode_config.
+STAR_SIZE_LABELS = ("Fine", "Classic")
+TRAIL_LABELS = ("Off", "Short", "Long", "Streaks")
+JUMP_LABELS = ("Off", "Occasional", "Frequent")
+EXTRA_OPTIONS = (
+    ("star_size", "Star size", STAR_SIZE_LABELS),
+    ("trail", "Trails", TRAIL_LABELS),
+    ("jumps", "Hyperspace jumps", JUMP_LABELS),
+)
 
 
 def resolve_starfield_intensity(config: Optional[dict]) -> int:
@@ -131,9 +141,43 @@ def resolve_max_radius(intensity: int) -> float:
     return float(_MAX_RADIUS_BY_INTENSITY[intensity])
 
 
-def resolve_trail(intensity: int) -> int:
-    intensity = max(0, min(STARFIELD_PANEL_ROWS, intensity))
-    return int(_TRAIL_BY_INTENSITY[intensity])
+def _choice(config: Optional[dict], key: str, labels: Tuple[str, ...], default: int) -> int:
+    value = dict(config or {}).get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < len(labels):
+        return default
+    return value
+
+
+def resolve_star_size(config: Optional[dict]) -> int:
+    return _choice(config, "star_size", STAR_SIZE_LABELS, 0)
+
+
+def resolve_trail(config: Optional[dict]) -> int:
+    intensity = resolve_starfield_intensity(config)
+    return _choice(config, "trail", TRAIL_LABELS, _TRAIL_BY_INTENSITY[intensity])
+
+
+def resolve_jumps(config: Optional[dict]) -> int:
+    return _choice(config, "jumps", JUMP_LABELS, 0)
+
+
+def extra_options_for_api(config: Optional[dict]) -> List[Dict[str, Any]]:
+    values = {
+        "star_size": resolve_star_size(config),
+        "trail": resolve_trail(config),
+        "jumps": resolve_jumps(config),
+    }
+    return [
+        {"key": key, "label": label, "choices": list(labels), "value": values[key]}
+        for key, label, labels in EXTRA_OPTIONS
+    ]
+
+
+def validate_extra_option(key: str, value: Any) -> None:
+    """Raise ValueError unless ``value`` is a valid index for option ``key``."""
+    labels = dict((k, l) for k, _label, l in EXTRA_OPTIONS)[key]
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < len(labels):
+        raise ValueError(f"{key} must be 0–{len(labels) - 1}")
 
 
 def starfield_config_for_api(config: Optional[dict]) -> Dict[str, Any]:
@@ -156,5 +200,6 @@ def starfield_config_for_api(config: Optional[dict]) -> Dict[str, Any]:
         "mid": list(stops["mid"]),
         "far": list(stops["far"]),
         "presets": list(STARFIELD_THEMES.keys()),
+        "options": extra_options_for_api(cfg),
         **color_rotate_api_fields(cfg),
     }

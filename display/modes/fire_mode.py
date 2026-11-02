@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Optional
+import time
+from typing import Optional, Tuple
 
 import numpy as np
 from PIL import Image
-from rgbmatrix import RGBMatrix
 
-from display.matrix import CANVAS_H, CANVAS_W
+from display.matrix_config import CANVAS_H, CANVAS_W
 from display.modes.color_rotate import (
     color_rotate_hz,
     hue_shift_colors,
     resolve_color_rotate_speed,
 )
 from display.modes.flame_config import (
+    SLOW_BUILD_S,
     FireProfile,
     build_fire_palette_lut,
+    resolve_fire_intro,
     resolve_fire_damping,
     resolve_fire_heat_scale,
     resolve_fire_height_px,
@@ -29,6 +31,10 @@ from display.modes.flame_config import (
 )
 from display.pillow_compat import set_pillow_image
 from display.state import load_state
+
+# A teardown followed by setup of the same mode within this window is a
+# settings change, not a fresh switch.
+_HANDOFF_S = 2.0
 
 
 def _config_from_state(mode_id: str) -> Optional[dict]:
@@ -111,8 +117,9 @@ class FireMode:
     mode_id: str = "flame"
     profile: FireProfile = "flame"
     tick_interval = 0.016
+    _handoff: Optional[Tuple[str, float, np.ndarray]] = None
 
-    def setup(self, matrix: RGBMatrix) -> None:
+    def setup(self, matrix) -> None:
         self._matrix = matrix
         self._display_w = CANVAS_W
         self._display_h = CANVAS_H
@@ -127,9 +134,26 @@ class FireMode:
         )
         self._sim.set_max_height(self._max_height_px)
         self._rgb = np.zeros((self._display_h, self._display_w, 3), dtype=np.uint8)
+        self._elapsed = 0.0
+        kept = FireMode._handoff
+        FireMode._handoff = None
+        if (
+            kept is not None
+            and kept[0] == self.mode_id
+            and time.monotonic() - kept[1] < _HANDOFF_S
+            and kept[2].shape == self._sim.heat.shape
+        ):
+            # The runner rebuilds the mode on every settings change; carry the
+            # flames over so a colour tweak doesn't replay the intro.
+            self._sim.heat = kept[2]
+            self._elapsed = SLOW_BUILD_S
+        elif self._intro == 2:
+            # Steady state takes ~1 tick per px of height; run twice that unseen.
+            for _ in range(max(100, 2 * self._display_h)):
+                self._sim.update()
 
     def teardown(self) -> None:
-        pass
+        FireMode._handoff = (self.mode_id, time.monotonic(), self._sim.heat)
 
     def _apply_config(self, config: Optional[dict]) -> None:
         cfg = dict(config or {})
@@ -150,6 +174,14 @@ class FireMode:
         self._seed_density = resolve_fire_seed_density(profile, self._intensity)
         self._output_gain = resolve_fire_output_gain(profile, self._intensity)
         self._max_height_px = resolve_fire_height_px(self._intensity, self._display_h)
+        self._intro = resolve_fire_intro(cfg)
+
+    def _apply_intro(self) -> None:
+        if self._intro != 1 or self._elapsed >= SLOW_BUILD_S:
+            return
+        self._elapsed += self.tick_interval
+        ramp = min(1.0, self._elapsed / SLOW_BUILD_S)
+        self._sim.seed_heat = self._seed_heat * (0.15 + 0.85 * ramp * ramp)
 
     def _rebuild_lut(self, phase: float) -> None:
         palette = (
@@ -175,8 +207,9 @@ class FireMode:
         # Pillow 9 copies the buffer — rebuild each frame.
         return Image.fromarray(self._rgb)
 
-    def tick(self, matrix: RGBMatrix, canvas):
+    def tick(self, matrix, canvas):
         self._advance_color_rotate()
+        self._apply_intro()
         self._sim.update()
         frame = self._render()
         set_pillow_image(canvas, frame)

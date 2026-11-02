@@ -200,6 +200,12 @@ def _pacman_mode():
     return PacmanMode()
 
 
+def _gibson_mode():
+    from display.modes.gibson import GibsonMode
+
+    return GibsonMode()
+
+
 MODES: Dict[str, ModeInfo] = {
     "weather": ModeInfo(
         id="weather",
@@ -233,8 +239,8 @@ MODES: Dict[str, ModeInfo] = {
     ),
     "flame": ModeInfo(
         id="flame",
-        label="Flame",
-        description="Sparse procedural fire — per-display color themes; intensity 0–3.",
+        label="Fire & smoke",
+        description="Embers and drifting fire — per-display color themes; intensity 0–3.",
         factory=_flame_mode,
     ),
     "lava": ModeInfo(
@@ -386,6 +392,12 @@ MODES: Dict[str, ModeInfo] = {
         label="Pac-Man",
         description="Attract-mode Pac-Man chomps dots while ghosts patrol.",
         factory=_pacman_mode,
+    ),
+    "gibson": ModeInfo(
+        id="gibson",
+        label="Gibson (work in progress)",
+        description="Neuromancer fly-through of textured towers. Placeholder textures, low frame rate.",
+        factory=_gibson_mode,
     ),
 }
 

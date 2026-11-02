@@ -105,6 +105,7 @@ class FlameConfigRequest(BaseModel):
     tip: Optional[List[int]] = None
     ember: Optional[List[int]] = None
     color_rotate_speed: Optional[int] = None
+    intro: Optional[int] = None
 
 
 class StarfieldConfigRequest(BaseModel):
@@ -115,6 +116,9 @@ class StarfieldConfigRequest(BaseModel):
     mid: Optional[List[int]] = None
     far: Optional[List[int]] = None
     color_rotate_speed: Optional[int] = None
+    star_size: Optional[int] = None
+    trail: Optional[int] = None
+    jumps: Optional[int] = None
 
 
 class MatrixRainConfigRequest(BaseModel):
@@ -241,10 +245,7 @@ def api_host_starfield_config(host_id: str, body: StarfieldConfigRequest) -> dic
     payload = body.model_dump(exclude_none=True)
     if not payload:
         raise HTTPException(status_code=400, detail="Provide preset, color_mode, intensity, and/or stops")
-    result = _client_for(host_id).set_starfield_config(payload)
-    if not result.online:
-        raise HTTPException(status_code=502, detail=result.error or "host unreachable")
-    return result.data if isinstance(result.data, dict) else {}
+    return _effect_result(_client_for(host_id).set_starfield_config(payload))
 
 
 @app.get("/api/hosts/{host_id}/mode/matrix_rain/config")
@@ -301,10 +302,7 @@ def api_host_fire_config(host_id: str, mode_id: str, body: FlameConfigRequest) -
     payload = body.model_dump(exclude_none=True)
     if not payload:
         raise HTTPException(status_code=400, detail="Provide preset and/or color stops")
-    result = _client_for(host_id).set_fire_config(mode_id, payload)
-    if not result.online:
-        raise HTTPException(status_code=502, detail=result.error or "host unreachable")
-    return result.data if isinstance(result.data, dict) else {}
+    return _effect_result(_client_for(host_id).set_fire_config(mode_id, payload))
 
 
 @app.get("/api/hosts/{host_id}/mode/{mode_id}/config")
@@ -573,6 +571,7 @@ def dashboard() -> str:
         <div class="flame-swatches" data-fire-swatches="{host.id}"></div>
         <div class="flame-intensity" data-fire-intensity="{host.id}"></div>
         <div class="flame-intensity" data-fire-rotate="{host.id}" style="margin-top:0.35rem"></div>
+        <div class="flame-intensity" data-fire-intro="{host.id}" style="margin-top:0.35rem"></div>
         <div class="flame-stops" data-fire-stops="{host.id}"></div>
       </div>
       <div class="wall-flame-panel" data-star-panel="{host.id}" style="display:none;margin-top:0.75rem">
@@ -580,6 +579,7 @@ def dashboard() -> str:
         <div class="flame-intensity" data-star-intensity="{host.id}"></div>
         <div class="flame-intensity" data-star-modes="{host.id}" style="margin-top:0.35rem"></div>
         <div class="flame-intensity" data-star-rotate="{host.id}" style="margin-top:0.35rem"></div>
+        <div data-star-options="{host.id}"></div>
         <div class="flame-swatches" data-star-swatches="{host.id}"></div>
         <div class="flame-stops" data-star-stops="{host.id}"></div>
       </div>
@@ -1066,7 +1066,7 @@ def dashboard() -> str:
         if (isFire) wallFireMode[hostId] = mode;
         const title = document.querySelector(`[data-fire-title="${{hostId}}"]`);
         if (title && isFire) {{
-          title.textContent = (mode === "lava" ? "Lava" : "Flame") + " colors";
+          title.textContent = (mode === "lava" ? "Lava" : "Fire & smoke") + " colors";
         }}
       }}
     }}
@@ -1117,6 +1117,27 @@ def dashboard() -> str:
           wallFireBusy[hostId] = false;
         }}
       }};
+
+      const introEl = document.querySelector(`[data-fire-intro="${{hostId}}"]`);
+      if (introEl) {{
+        introEl.innerHTML = `<span class="hint" style="flex:1 1 100%;margin:0 0 0.15rem;font-size:0.75rem">Intro when switching to this mode</span>` +
+          (data.intro_labels || []).map((label, idx) =>
+            `<button type="button" class="${{idx === (data.intro ?? 0) ? "active" : ""}}" data-intro="${{idx}}">${{label}}</button>`
+          ).join("");
+        introEl.onclick = async (ev) => {{
+          const btn = ev.target.closest("button[data-intro]");
+          if (!btn || wallFireBusy[hostId]) return;
+          wallFireBusy[hostId] = true;
+          try {{
+            renderWallFire(hostId, await saveWallFireConfig(hostId, {{ intro: Number(btn.dataset.intro) }}));
+            showToast(`${{hostId}} ${{modeLabel}} intro · ${{btn.textContent}}`);
+          }} catch (e) {{
+            showToast(String(e.message || e));
+          }} finally {{
+            wallFireBusy[hostId] = false;
+          }}
+        }};
+      }}
 
       if (intEl) {{
         const activeIntensity = data.intensity ?? 0;
@@ -1283,6 +1304,26 @@ def dashboard() -> str:
           try {{
             renderWallStar(hostId, await saveWallStarConfig(hostId, {{ color_rotate_speed: Number(btn.dataset.rotateSpeed) }}));
             showToast(`${{hostId}} starfield color cycle · ${{labels[Number(btn.dataset.rotateSpeed)]}}`);
+          }} catch (e) {{ showToast(String(e.message || e)); }}
+          finally {{ wallStarBusy[hostId] = false; }}
+        }};
+      }}
+      const optsEl = document.querySelector(`[data-star-options="${{hostId}}"]`);
+      if (optsEl) {{
+        optsEl.innerHTML = (data.options || []).map(opt =>
+          `<div class="flame-intensity" style="margin-top:0.35rem">` +
+          `<span class="hint" style="flex:1 1 100%;margin:0 0 0.15rem;font-size:0.75rem">${{opt.label}}</span>` +
+          opt.choices.map((label, idx) =>
+            `<button type="button" class="${{idx === opt.value ? "active" : ""}}" data-star-opt="${{opt.key}}" data-value="${{idx}}">${{label}}</button>`
+          ).join("") + `</div>`
+        ).join("");
+        optsEl.onclick = async (ev) => {{
+          const btn = ev.target.closest("button[data-star-opt]");
+          if (!btn || wallStarBusy[hostId]) return;
+          wallStarBusy[hostId] = true;
+          try {{
+            renderWallStar(hostId, await saveWallStarConfig(hostId, {{ [btn.dataset.starOpt]: Number(btn.dataset.value) }}));
+            showToast(`${{hostId}} starfield · ${{btn.textContent}}`);
           }} catch (e) {{ showToast(String(e.message || e)); }}
           finally {{ wallStarBusy[hostId] = false; }}
         }};

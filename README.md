@@ -44,8 +44,8 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 | **World clock** | Multiple time zones (compact BDF layout built-in; optional large-wall renderer via `repo_urls.world_clock`) |
 | **Analog clock** | Face with sweeping second hand |
 | **Game of Life** | Full-panel Conway simulation |
-| **Flame / Lava** | Procedural fire (sparse or dense); colour themes + intensity |
-| **Starfield** | Win95-style fly-through; colour modes + night intensity |
+| **Fire & smoke / Lava** | Procedural fire (sparse or dense); colour themes, intensity, intro (natural / slow build / instant) |
+| **Starfield** | Win95-style fly-through; colour modes, night intensity, fine or classic stars, motion trails, hyperspace jumps |
 | **Matrix rain** | Falling glyphs; colour presets or custom colour, four speeds |
 | **Rainbow** | Diagonal colour bands; palettes, direction, speed, brightness |
 | **Sparkle** | Blinkenlights — twinkle or blink, pixels or lamps |
@@ -66,6 +66,7 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 | **Mandelbrot zoom** | Slow infinite zoom with palette cycling |
 | **Pong / Tetris / Breakout** | Self-playing attract modes |
 | **Space Invaders / Pac-Man** | Sprite attract modes |
+| **Gibson** *(work in progress)* | Neuromancer fly-through of textured towers; placeholder textures, not in auto-rotate |
 | **Media** | Full-screen GIF (in-process) or MP4 via hzeller `video-viewer` |
 
 ### Overlays & scheduling

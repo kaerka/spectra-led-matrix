@@ -23,7 +23,9 @@ ROTATION_PATH = os.path.join(ROOT, "config", "rotation.json")
 
 INTERVALS = (60, 120, 300, 600, 900, 1800, 3600)
 DEFAULT_INTERVAL = 300
-NEVER_ROTATE = frozenset({"media"})
+# media hands off to the video player; gibson is unfinished (placeholder
+# textures, ~5 fps on a Pi 4).
+NEVER_ROTATE = frozenset({"media", "gibson"})
 # Off by default in the pool: they are information screens, not animations.
 NOT_ANIMATIONS = frozenset({"weather", "world_clock", "analog_clock"})
 

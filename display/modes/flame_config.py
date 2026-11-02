@@ -78,6 +78,12 @@ DEFAULT_FLAME_INTENSITY = 0
 FLAME_PANEL_ROWS = 3
 FIRE_PANEL_ROWS = 3
 
+# How the fire appears when the mode starts: rise from black (about 1–3 s),
+# a slow build while the fuel eases in, or already burning.
+INTRO_LABELS = ("Natural", "Slow build", "Instant")
+DEFAULT_INTRO = 0
+SLOW_BUILD_S = 12.0
+
 # Night intensity: 1.5 panel rows tall, heavily dimmed.
 _NIGHT_HEIGHT_PANELS = 1.5
 _NIGHT_OUTPUT_GAIN = 0.10
@@ -118,6 +124,13 @@ def resolve_fire_intensity(config: Optional[dict]) -> int:
     except (TypeError, ValueError):
         return DEFAULT_FLAME_INTENSITY
     return max(0, min(FIRE_PANEL_ROWS, value))
+
+
+def resolve_fire_intro(config: Optional[dict]) -> int:
+    value = dict(config or {}).get("intro", DEFAULT_INTRO)
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < len(INTRO_LABELS):
+        return DEFAULT_INTRO
+    return value
 
 
 def resolve_flame_intensity(config: Optional[dict]) -> int:
@@ -309,6 +322,8 @@ def fire_config_for_api(profile: FireProfile, config: Optional[dict]) -> Dict[st
         "ember": list(stops["ember"]),
         "colors": [list(c) for c in resolve_fire_palette(config)],
         "presets": list(FIRE_THEMES.keys()),
+        "intro": resolve_fire_intro(cfg),
+        "intro_labels": list(INTRO_LABELS),
         **color_rotate_api_fields(cfg),
     }
 

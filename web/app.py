@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -24,6 +24,7 @@ from display.messages.store import (
 from display.modes.effect_config import EFFECT_MODE_IDS, effect_config_for_api, validate_effect_patch
 from display.modes.flame_config import (
     FLAME_PRESETS,
+    INTRO_LABELS,
     flame_config_for_api,
     lava_config_for_api,
 )
@@ -36,6 +37,7 @@ from display.modes.starfield_config import (
     COLOR_MODES,
     STARFIELD_PRESETS,
     starfield_config_for_api,
+    validate_extra_option,
 )
 from display.modes.registry import MODES, list_modes
 from display.mqtt.overlay import load_mqtt_config
@@ -88,6 +90,8 @@ class FireConfigResponse(BaseModel):
     color_rotate_speed: int = 0
     color_rotate_labels: List[str] = []
     color_rotate_hz: float = 0.0
+    intro: int = 0
+    intro_labels: List[str] = []
 
 
 class FireConfigRequest(BaseModel):
@@ -98,6 +102,7 @@ class FireConfigRequest(BaseModel):
     tip: Optional[List[int]] = None
     ember: Optional[List[int]] = None
     color_rotate_speed: Optional[int] = None
+    intro: Optional[int] = None
 
 
 class StarfieldConfigResponse(BaseModel):
@@ -116,6 +121,7 @@ class StarfieldConfigResponse(BaseModel):
     color_rotate_speed: int = 0
     color_rotate_labels: List[str] = []
     color_rotate_hz: float = 0.0
+    options: List[Dict[str, Any]] = []
 
 
 class StarfieldConfigRequest(BaseModel):
@@ -126,6 +132,9 @@ class StarfieldConfigRequest(BaseModel):
     mid: Optional[List[int]] = None
     far: Optional[List[int]] = None
     color_rotate_speed: Optional[int] = None
+    star_size: Optional[int] = None
+    trail: Optional[int] = None
+    jumps: Optional[int] = None
 
 
 class MatrixRainConfigResponse(BaseModel):
@@ -314,6 +323,7 @@ def control_panel() -> str:
     <div class="flame-swatches" id="fire-swatches"><em>Loading…</em></div>
     <div class="flame-intensity" id="fire-intensity"></div>
     <div class="flame-intensity" id="fire-rotate" style="margin-top:0.45rem"></div>
+    <div class="flame-intensity" id="fire-intro" style="margin-top:0.45rem"></div>
     <div class="flame-stops" id="fire-stops"></div>
   </div>
 
@@ -323,6 +333,7 @@ def control_panel() -> str:
     <div class="flame-intensity" id="star-intensity"></div>
     <div class="flame-intensity" id="star-color-modes" style="margin-top:0.45rem"></div>
     <div class="flame-intensity" id="star-rotate" style="margin-top:0.45rem"></div>
+    <div id="star-options"></div>
     <div class="flame-swatches" id="star-swatches"><em>Loading…</em></div>
     <div class="flame-stops" id="star-stops"></div>
   </div>
@@ -407,7 +418,7 @@ def control_panel() -> str:
         currentFireMode = modeId;
         const title = document.getElementById("fire-panel-title");
         const hint = document.getElementById("fire-panel-hint");
-        if (title) title.textContent = modeId === "lava" ? "Lava colors" : "Flame colors";
+        if (title) title.textContent = modeId === "lava" ? "Lava colors" : "Fire & smoke colors";
         if (hint) hint.textContent = modeId === "lava"
           ? "Dense heat field (~70% brightness). Night = 1.5 panels @ 10%."
           : "Sparse fire. Night = 1.5 panels @ 10%.";
@@ -543,11 +554,42 @@ def control_panel() -> str:
     const INTENSITY_LABELS = ["Night (dim)", "1 panel", "2 panels", "Full (3)"];
     const ROTATE_LABELS = ["Off", "Slow", "Medium", "Fast"];
 
+    const fireIntro = document.getElementById("fire-intro");
+
     function renderFireAll(cfg) {{
       renderFireSwatches(cfg);
       renderFireIntensity(cfg);
       renderFireRotate(cfg);
+      renderFireIntro(cfg);
       renderFireStops(cfg);
+    }}
+
+    function renderFireIntro(data) {{
+      if (!fireIntro) return;
+      const labels = data.intro_labels || [];
+      fireIntro.innerHTML = `<span class="hint" style="flex:1 1 100%;margin:0 0 0.2rem">Intro when switching to this mode</span>` +
+        labels.map((label, idx) =>
+          `<button type="button" class="${{idx === (data.intro ?? 0) ? "active" : ""}}" data-intro="${{idx}}">${{label}}</button>`
+        ).join("");
+      fireIntro.onclick = async (ev) => {{
+        const btn = ev.target.closest("button[data-intro]");
+        if (!btn || fireBusy) return;
+        fireBusy = true;
+        try {{
+          const res = await fetch(`/api/mode/${{currentFireMode}}/config`, {{
+            method: "PUT",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ intro: Number(btn.dataset.intro) }}),
+          }});
+          if (!res.ok) throw new Error("update failed");
+          renderFireAll(await res.json());
+          showToast(`${{currentFireMode}} intro · ${{btn.textContent}}`);
+        }} catch (e) {{
+          showToast("Failed to set intro");
+        }} finally {{
+          fireBusy = false;
+        }}
+      }};
     }}
 
     function renderFireRotate(data) {{
@@ -870,10 +912,43 @@ def control_panel() -> str:
       }});
     }}
 
+    const starOptions = document.getElementById("star-options");
+
+    function renderStarOptions(data) {{
+      if (!starOptions) return;
+      starOptions.innerHTML = (data.options || []).map(opt =>
+        `<div class="flame-intensity" style="margin-top:0.45rem">` +
+        `<span class="hint" style="flex:1 1 100%;margin:0 0 0.2rem">${{opt.label}}</span>` +
+        opt.choices.map((label, idx) =>
+          `<button type="button" class="${{idx === opt.value ? "active" : ""}}" data-star-opt="${{opt.key}}" data-value="${{idx}}">${{label}}</button>`
+        ).join("") + `</div>`
+      ).join("");
+      starOptions.onclick = async (ev) => {{
+        const btn = ev.target.closest("button[data-star-opt]");
+        if (!btn || starBusy) return;
+        starBusy = true;
+        try {{
+          const res = await fetch("/api/mode/starfield/config", {{
+            method: "PUT",
+            headers: {{ "Content-Type": "application/json" }},
+            body: JSON.stringify({{ [btn.dataset.starOpt]: Number(btn.dataset.value) }}),
+          }});
+          if (!res.ok) throw new Error("update failed");
+          renderStarfieldAll(await res.json());
+          showToast("Starfield · " + btn.textContent);
+        }} catch (e) {{
+          showToast("Failed to update starfield");
+        }} finally {{
+          starBusy = false;
+        }}
+      }};
+    }}
+
     function renderStarfieldAll(cfg) {{
       renderStarIntensity(cfg);
       renderStarColorModes(cfg);
       renderStarRotate(cfg);
+      renderStarOptions(cfg);
       renderStarSwatches(cfg);
       renderStarStops(cfg);
     }}
@@ -1101,21 +1176,16 @@ def api_set_starfield_config(body: StarfieldConfigRequest) -> StarfieldConfigRes
         raise HTTPException(status_code=400, detail="color_rotate_speed must be 0–3")
     for field in ("near", "mid", "far"):
         _validate_rgb_field(field, getattr(body, field))
-    if all(
-        getattr(body, k) is None
-        for k in (
-            "preset",
-            "color_mode",
-            "intensity",
-            "near",
-            "mid",
-            "far",
-            "color_rotate_speed",
-        )
-    ):
+    for key in ("star_size", "trail", "jumps"):
+        if getattr(body, key) is not None:
+            try:
+                validate_extra_option(key, getattr(body, key))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not body.model_dump(exclude_none=True):
         raise HTTPException(
             status_code=400,
-            detail="Provide preset, color_mode, intensity, color_rotate_speed, and/or color stops",
+            detail="Provide preset, color_mode, intensity, color_rotate_speed, star_size, trail, jumps, and/or color stops",
         )
     set_mode_config("starfield", body.model_dump(exclude_none=True))
     return _starfield_config_response()
@@ -1194,23 +1264,14 @@ def api_set_fire_config(mode_id: str, body: FireConfigRequest) -> FireConfigResp
         raise HTTPException(status_code=400, detail="intensity must be 0–3")
     if body.color_rotate_speed is not None and not 0 <= body.color_rotate_speed <= 3:
         raise HTTPException(status_code=400, detail="color_rotate_speed must be 0–3")
+    if body.intro is not None and not 0 <= body.intro < len(INTRO_LABELS):
+        raise HTTPException(status_code=400, detail=f"intro must be 0–{len(INTRO_LABELS) - 1}")
     for field in ("core", "mid", "tip", "ember"):
         _validate_rgb_field(field, getattr(body, field))
-    if all(
-        getattr(body, k) is None
-        for k in (
-            "preset",
-            "intensity",
-            "core",
-            "mid",
-            "tip",
-            "ember",
-            "color_rotate_speed",
-        )
-    ):
+    if not body.model_dump(exclude_none=True):
         raise HTTPException(
             status_code=400,
-            detail="Provide preset, intensity, color_rotate_speed, and/or color stops",
+            detail="Provide preset, intensity, color_rotate_speed, intro, and/or color stops",
         )
     patch = body.model_dump(exclude_none=True)
     set_mode_config(mode_id, patch)
