@@ -8,7 +8,7 @@ from display.modes.color_rotate import color_rotate_api_fields
 
 Color = Tuple[int, int, int]
 
-DEFAULT_STARFIELD_INTENSITY = 0
+DEFAULT_STARFIELD_INTENSITY = 1
 STARFIELD_PANEL_ROWS = 3  # intensity 0–3, same knob shape as fire modes
 
 # Color modes: how RGB is chosen per star / depth.

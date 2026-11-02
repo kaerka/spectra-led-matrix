@@ -7,7 +7,12 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
-SECRETS_PATH = os.path.join(ROOT, "config", "secrets.local.json")
+DATA_ROOT = os.environ.get("SPECTRA_DATA_ROOT", "/data/spectra")
+# Ansible deploys secrets to the data root; the repo copy is for dev checkouts.
+SECRETS_PATHS = (
+    os.path.join(DATA_ROOT, "config", "secrets.local.json"),
+    os.path.join(ROOT, "config", "secrets.local.json"),
+)
 SECRETS_EXAMPLE = os.path.join(ROOT, "config", "secrets.example.json")
 
 DEFAULTS = {
@@ -17,8 +22,8 @@ DEFAULTS = {
 }
 
 
-def load_secrets() -> dict:
-    path = SECRETS_PATH if os.path.isfile(SECRETS_PATH) else SECRETS_EXAMPLE
+def load_secrets(paths=SECRETS_PATHS) -> dict:
+    path = next((p for p in paths if os.path.isfile(p)), SECRETS_EXAMPLE)
     if not os.path.isfile(path):
         return dict(DEFAULTS)
     with open(path, encoding="utf-8") as fp:
