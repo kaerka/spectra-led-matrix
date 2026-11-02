@@ -55,6 +55,17 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 | **WOPR tic-tac-toe** | Perfect-play draws, accelerating pace, strange-game card |
 | **WOPR: Global Conflict Simulation** | CRT world map, slow overlapping missile arcs, ~5s teletype/parables, long chaotic rounds |
 | **Tron light cycles** | 2–5 AI bikes, classic orange/blue (+ custom colours), four speeds |
+| **Falling** | Stick figure tumbling while cave walls rush upward |
+| **Plasma** | Classic demoscene colour fields |
+| **Fireworks** | Launches, bursts, fading particle trails |
+| **Boids / fish tank** | Flocking birds or aquarium fish with bubbles |
+| **Falling sand / rain** | Sand pile, or rain on glass with drips |
+| **Cellular automata** | Langton's ant, Brian's Brain, Wireworld, reaction-diffusion |
+| **Bouncing DVD logo** | Edge bounce with corner-hit celebration |
+| **Wireframe 3D** | Spinning cube or torus |
+| **Mandelbrot zoom** | Slow infinite zoom with palette cycling |
+| **Pong / Tetris / Breakout** | Self-playing attract modes |
+| **Space Invaders / Pac-Man** | Sprite attract modes |
 | **Media** | Full-screen GIF (in-process) or MP4 via hzeller `video-viewer` |
 
 ### Overlays & scheduling

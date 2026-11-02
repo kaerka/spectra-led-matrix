@@ -116,6 +116,90 @@ def _tron_mode():
     return TronMode()
 
 
+def _falling_mode():
+    from display.modes.falling import FallingMode
+
+    return FallingMode()
+
+
+def _plasma_mode():
+    from display.modes.plasma import PlasmaMode
+
+    return PlasmaMode()
+
+
+def _fireworks_mode():
+    from display.modes.fireworks import FireworksMode
+
+    return FireworksMode()
+
+
+def _boids_mode():
+    from display.modes.boids import BoidsMode
+
+    return BoidsMode()
+
+
+def _sand_mode():
+    from display.modes.sand import SandMode
+
+    return SandMode()
+
+
+def _automata_mode():
+    from display.modes.automata import AutomataMode
+
+    return AutomataMode()
+
+
+def _dvd_mode():
+    from display.modes.dvd import DvdMode
+
+    return DvdMode()
+
+
+def _wireframe_mode():
+    from display.modes.wireframe import WireframeMode
+
+    return WireframeMode()
+
+
+def _mandelbrot_mode():
+    from display.modes.mandelbrot import MandelbrotMode
+
+    return MandelbrotMode()
+
+
+def _pong_mode():
+    from display.modes.pong import PongMode
+
+    return PongMode()
+
+
+def _tetris_mode():
+    from display.modes.tetris import TetrisMode
+
+    return TetrisMode()
+
+
+def _breakout_mode():
+    from display.modes.breakout import BreakoutMode
+
+    return BreakoutMode()
+
+
+def _invaders_mode():
+    from display.modes.invaders import InvadersMode
+
+    return InvadersMode()
+
+
+def _pacman_mode():
+    from display.modes.pacman import PacmanMode
+
+    return PacmanMode()
+
+
 MODES: Dict[str, ModeInfo] = {
     "weather": ModeInfo(
         id="weather",
@@ -218,6 +302,90 @@ MODES: Dict[str, ModeInfo] = {
         label="Tron light cycles",
         description="AI light cycles leave walls until they crash. Classic orange vs blue.",
         factory=_tron_mode,
+    ),
+    "falling": ModeInfo(
+        id="falling",
+        label="Falling",
+        description="Stick figure tumbling while cave walls rush upward — infinite hole.",
+        factory=_falling_mode,
+    ),
+    "plasma": ModeInfo(
+        id="plasma",
+        label="Plasma",
+        description="Classic demoscene plasma — shifting colour fields.",
+        factory=_plasma_mode,
+    ),
+    "fireworks": ModeInfo(
+        id="fireworks",
+        label="Fireworks",
+        description="Launches, bursts, and fading particle trails.",
+        factory=_fireworks_mode,
+    ),
+    "boids": ModeInfo(
+        id="boids",
+        label="Boids / fish tank",
+        description="Flocking birds or an aquarium of fish with bubbles.",
+        factory=_boids_mode,
+    ),
+    "sand": ModeInfo(
+        id="sand",
+        label="Falling sand / rain",
+        description="Particle sand pile, or rain on glass with drips.",
+        factory=_sand_mode,
+    ),
+    "automata": ModeInfo(
+        id="automata",
+        label="Cellular automata",
+        description="Langton's ant, Brian's Brain, Wireworld, or reaction-diffusion.",
+        factory=_automata_mode,
+    ),
+    "dvd": ModeInfo(
+        id="dvd",
+        label="Bouncing DVD logo",
+        description="The classic logo bounce — celebrate every corner hit.",
+        factory=_dvd_mode,
+    ),
+    "wireframe": ModeInfo(
+        id="wireframe",
+        label="Wireframe 3D",
+        description="Spinning cube or torus — vector-display CRT look.",
+        factory=_wireframe_mode,
+    ),
+    "mandelbrot": ModeInfo(
+        id="mandelbrot",
+        label="Mandelbrot zoom",
+        description="Slow infinite zoom with palette cycling.",
+        factory=_mandelbrot_mode,
+    ),
+    "pong": ModeInfo(
+        id="pong",
+        label="Pong",
+        description="Self-playing Pong — two paddles, endless rally.",
+        factory=_pong_mode,
+    ),
+    "tetris": ModeInfo(
+        id="tetris",
+        label="Tetris",
+        description="Self-playing Tetris attract — drops, clears, resets when stacked.",
+        factory=_tetris_mode,
+    ),
+    "breakout": ModeInfo(
+        id="breakout",
+        label="Breakout",
+        description="Self-playing Breakout — paddle chases the ball, bricks fall.",
+        factory=_breakout_mode,
+    ),
+    "invaders": ModeInfo(
+        id="invaders",
+        label="Space Invaders",
+        description="Attract-mode invaders march and shoot; the bunker fights back.",
+        factory=_invaders_mode,
+    ),
+    "pacman": ModeInfo(
+        id="pacman",
+        label="Pac-Man",
+        description="Attract-mode Pac-Man chomps dots while ghosts patrol.",
+        factory=_pacman_mode,
     ),
 }
 

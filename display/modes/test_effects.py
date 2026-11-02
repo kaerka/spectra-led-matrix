@@ -1,10 +1,14 @@
-"""Procedural effects: rainbow, sparkle, lava lamp, TV static, snake, WOPR."""
+"""Procedural effects: shared effect_config modes."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
+from display.modes.automata import AutomataField
+from display.modes.boids import BoidsField
+from display.modes.breakout import BreakoutField
+from display.modes.dvd import DvdField
 from display.modes.effect_config import (
     EFFECTS,
     effect_config_for_api,
@@ -12,13 +16,23 @@ from display.modes.effect_config import (
     sample_cyclic,
     validate_effect_patch,
 )
-from display.modes.lava_lamp import LavaLampField
-from display.modes.rainbow import RainbowField
+from display.modes.falling import FallingField
+from display.modes.fireworks import FireworksField
 from display.modes.gtw import GtwField, _SITES
+from display.modes.invaders import InvadersField
+from display.modes.lava_lamp import LavaLampField
+from display.modes.mandelbrot import MandelbrotField
+from display.modes.pacman import PacmanField
+from display.modes.plasma import PlasmaField
+from display.modes.pong import PongField
+from display.modes.rainbow import RainbowField
+from display.modes.sand import SandField
 from display.modes.snake import SnakeField
 from display.modes.sparkle import SparkleField, lamp_cell
+from display.modes.tetris import TetrisField
 from display.modes.tron import TronField
 from display.modes.tv_static import TvStaticField
+from display.modes.wireframe import WireframeField
 from display.modes.wopr import WoprField, _minimax, _winner
 
 FIELDS = {
@@ -30,6 +44,20 @@ FIELDS = {
     "wopr": WoprField,
     "gtw": GtwField,
     "tron": TronField,
+    "falling": FallingField,
+    "plasma": PlasmaField,
+    "fireworks": FireworksField,
+    "boids": BoidsField,
+    "sand": SandField,
+    "automata": AutomataField,
+    "dvd": DvdField,
+    "wireframe": WireframeField,
+    "mandelbrot": MandelbrotField,
+    "pong": PongField,
+    "tetris": TetrisField,
+    "breakout": BreakoutField,
+    "invaders": InvadersField,
+    "pacman": PacmanField,
 }
 SIZES = [(64, 64), (128, 64), (192, 192)]
 
