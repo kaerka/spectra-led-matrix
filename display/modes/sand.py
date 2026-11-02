@@ -1,14 +1,22 @@
-"""Falling sand cellular sim or rain streaks on glass with drips."""
+"""Falling sand (layered sand-art pours that drain and refill) or rain with splashes."""
 
 from __future__ import annotations
+
+import colorsys
+import math
 
 import numpy as np
 
 from display.modes.effect_base import EffectField, EffectMode
 
-_SPAWN_PER_S = (2.0, 6.0, 14.0, 28.0)
-_UPDATES_MULT = (1.0, 1.6, 2.4, 3.5)
-_RAIN_DROPS = (8, 18, 35, 60)
+_POUR_PER_S = (40.0, 90.0, 180.0, 320.0)  # grains per second at 64 px (scaled by area)
+_SAND_STEPS = (2, 3, 4, 5)
+_SHADES = 32
+_LAYERS = 16
+_LAYER_S = 4.0
+_FULL = 0.62  # drain once this share of the canvas is sand
+_DRAIN_S = 6.0
+_RAIN_RATE = (25, 60, 120, 220)  # drops per second at 64 px wide
 
 
 class SandField(EffectField):
@@ -16,118 +24,181 @@ class SandField(EffectField):
         super().__init__(width, height, settings, seed)
         values = settings.values
         self.rain_mode = values["style"] == 1
-        short = min(width, height)
-        self.cell = 2 if short >= 96 else 1
-        self.cols = width // self.cell
-        self.rows = height // self.cell
-        self.x_off = (width - self.cols * self.cell) // 2
-        self.y_off = (height - self.rows * self.cell) // 2
         rate = values["rate"]
-        self.spawn_rate = _SPAWN_PER_S[rate]
-        self.updates = max(1, int(self.rows * _UPDATES_MULT[rate] * 0.15))
-        self.particle_rgb = np.asarray(settings.stops[0], dtype=np.float32) * settings.gain
-        self.bg_rgb = np.asarray(settings.stops[1 % len(settings.stops)], dtype=np.float32) * settings.gain
-        self._spawn_accum = 0.0
+        gain = settings.gain
+        self.particle = np.asarray(settings.stops[0], dtype=np.float32)
+        self.bg = np.asarray(settings.stops[1 % len(settings.stops)], dtype=np.float32) * gain
+        self.gain = gain
+        self.scale = min(width, height) / 64.0
         if self.rain_mode:
-            self._glass = np.zeros((height, width), dtype=np.float32)
-            self._drops = self._init_rain_drops(rate)
+            self.rate = _RAIN_RATE[rate] * width / 64.0
+            self.drops = np.zeros((0, 5), dtype=np.float32)  # x, y, vx, vy, len
+            self.splash = np.zeros((0, 5), dtype=np.float32)  # x, y, vx, vy, life
+            self.buf = np.zeros((height, width, 3), dtype=np.float32)
+            self.flash = 0.0
+            self.storm = rate == 3
+            self._acc = 0.0
         else:
-            self.grid = np.zeros((self.rows, self.cols), dtype=np.uint8)
+            self.rate = _POUR_PER_S[rate] * (width * height) / 4096.0
+            self.steps = _SAND_STEPS[rate]
+            # 0 empty, else 1 + layer * _SHADES + shade
+            self.grid = np.zeros((height, width), dtype=np.uint16)
+            self.lut = np.zeros((1 + _LAYERS * _SHADES, 3), dtype=np.float32)
+            self.lut[0] = self.bg
+            self._layer = 0
+            self._set_layer_colors(0.0)
+            self.nozzles = [float(self.rng.uniform(0.2, 0.8)) for _ in range(2 if width >= 96 else 1)]
+            self.drain_t = 0.0
+            self._acc = 0.0
+            self._layer_t = 0.0
 
-    def _init_rain_drops(self, rate: int) -> list[dict]:
-        n = _RAIN_DROPS[rate]
-        drops = []
-        for _ in range(n):
-            drops.append({
-                "x": float(self.rng.uniform(0, self.width)),
-                "y": float(self.rng.uniform(-self.height, self.height)),
-                "vy": float(self.rng.uniform(80, 160)),
-                "len": float(self.rng.uniform(4, 12)),
-            })
-        return drops
+    # -------------------------------------------------------------- sand
 
-    def _spawn_sand(self, n: int) -> None:
-        for _ in range(n):
-            x = int(self.rng.integers(0, self.cols))
-            if self.grid[0, x] == 0:
-                self.grid[0, x] = 1
+    def _set_layer_colors(self, hue_offset: float) -> None:
+        h, s, v = colorsys.rgb_to_hsv(*(self.particle / 255.0))
+        hue = (h + hue_offset) % 1.0
+        layer_v = float(self.rng.uniform(0.75, 1.0))
+        shade = np.linspace(0.6, 1.1, _SHADES)
+        base = 1 + self._layer * _SHADES
+        for i in range(_SHADES):
+            sat = min(1.0, s * (0.8 + 0.2 * (i % 3)))
+            r, g, b = colorsys.hsv_to_rgb(hue, sat, min(1.0, v * layer_v * shade[i]))
+            self.lut[base + i] = np.array([r, g, b]) * 255 * self.gain
 
-    def _step_sand(self) -> None:
-        """Bottom-up pass on occupied cells only."""
-        g = self.grid
-        ys, xs = np.nonzero(g)
-        if ys.size == 0:
+    def _pour(self, dt: float) -> None:
+        self._acc += self.rate * dt
+        n = int(self._acc)
+        self._acc -= n
+        if n <= 0:
             return
-        order = np.argsort(-ys)
-        for idx in order:
-            y, x = int(ys[idx]), int(xs[idx])
-            if g[y, x] == 0:
-                continue
-            if y >= self.rows - 1:
-                continue
-            if g[y + 1, x] == 0:
-                g[y + 1, x] = 1
-                g[y, x] = 0
-            else:
-                dx = int(self.rng.integers(-1, 2))
-                nx = x + dx
-                if 0 <= nx < self.cols and g[y + 1, nx] == 0:
-                    g[y + 1, nx] = 1
-                    g[y, x] = 0
+        w = self.width
+        spread = max(1.0, 1.2 * self.scale)
+        for k, pos in enumerate(self.nozzles):
+            pos += math.sin(self._layer_t * (0.23 + 0.11 * k) + k * 2.0) * 0.004
+            self.nozzles[k] = min(0.85, max(0.15, pos))
+        m = len(self.nozzles)
+        which = self.rng.integers(m, size=n)
+        xs = np.asarray(self.nozzles)[which] * w + self.rng.normal(0, spread, n)
+        xs = np.clip(xs.astype(np.int32), 0, w - 1)
+        ys = self.rng.integers(0, max(1, int(2 * self.scale)), n)
+        empty = self.grid[ys, xs] == 0
+        shade = (1 + self._layer * _SHADES + self.rng.integers(0, _SHADES, n)).astype(np.uint16)
+        self.grid[ys[empty], xs[empty]] = shade[empty]
 
-    def _step_rain(self, dt: float) -> None:
-        self._glass *= max(0.0, 1.0 - 2.5 * dt)
-        for d in self._drops:
-            d["y"] += d["vy"] * dt
-            x, y = int(d["x"]), int(d["y"])
-            if y >= self.height + 4:
-                d["y"] = float(self.rng.uniform(-20, -4))
-                d["x"] = float(self.rng.uniform(0, self.width))
-                if self.rng.random() < 0.15:
-                    self._add_drip(d["x"])
-            ln = int(d["len"])
-            for i in range(ln):
-                yy = y - i
-                if 0 <= yy < self.height and 0 <= x < self.width:
-                    self._glass[yy, x] = np.maximum(self._glass[yy, x], 0.85 - i * 0.08)
-        # Drips slide down the glass.
-        for _ in range(2):
-            g = self._glass
-            drip = g * 0.98
-            drip[1:] = np.maximum(drip[1:], g[:-1] * 0.92)
-            self._glass = drip
+    def _step_sand(self, parity: int) -> None:
+        g = self.grid
+        above, below = g[:-1], g[1:]
+        fall = (above != 0) & (below == 0)
+        below[fall] = above[fall]
+        above[fall] = 0
+        d = 1 if parity else -1
+        above, below = g[:-1], g[1:]
+        if d == 1:
+            src, dst = above[:, :-1], below[:, 1:]
+        else:
+            src, dst = above[:, 1:], below[:, :-1]
+        slide = (src != 0) & (dst == 0) & (self.rng.random(src.shape) < 0.85)
+        dst[slide] = src[slide]
+        src[slide] = 0
 
-    def _add_drip(self, x: float) -> None:
-        col = int(np.clip(x, 0, self.width - 1))
-        h = int(self.rng.integers(3, min(12, self.height // 4)))
-        y0 = int(self.rng.integers(0, max(1, self.height - h)))
-        self._glass[y0:y0 + h, col] = np.maximum(self._glass[y0:y0 + h, col], 0.95)
+    def _frame_sand(self, t: float, dt: float) -> np.ndarray:
+        self._layer_t += dt
+        if self.drain_t > 0:
+            self.drain_t -= dt
+            self.grid[-1] = 0
+            self.grid[-1, self.rng.random(self.width) < 0.5] = 0
+            if self.drain_t <= 0 or not self.grid.any():
+                self.drain_t = 0.0
+                self.grid[:] = 0
+        else:
+            self._pour(dt)
+            if int(self._layer_t / _LAYER_S) != int((self._layer_t - dt) / _LAYER_S):
+                self._layer = (self._layer + 1) % _LAYERS
+                self._set_layer_colors(float(self.rng.uniform(-0.035, 0.035)))
+            if np.count_nonzero(self.grid) > _FULL * self.grid.size:
+                self.drain_t = _DRAIN_S
+        for k in range(self.steps):
+            self._step_sand((k + int(t * 60)) % 2)
+        if self.drain_t > 0:
+            self.grid[-1] = 0
+        return self.lut[self.grid].astype(np.uint8)
 
-    def _blit_grid(self) -> np.ndarray:
-        out = np.broadcast_to(self.bg_rgb, (self.height, self.width, 3)).copy()
-        if not self.grid.any():
-            return out
-        c = self.cell
-        small = np.where(self.grid[..., None], self.particle_rgb, self.bg_rgb).astype(np.float32)
-        big = np.repeat(np.repeat(small, c, axis=0), c, axis=1)
-        h, w = big.shape[:2]
-        out[self.y_off:self.y_off + h, self.x_off:self.x_off + w] = big
-        return out
+    # -------------------------------------------------------------- rain
+
+    def _frame_rain(self, t: float, dt: float) -> np.ndarray:
+        w, h = self.width, self.height
+        s = self.scale
+        self._acc += self.rate * dt
+        n = int(self._acc)
+        self._acc -= n
+        wind = math.sin(t * 0.13) * 0.18
+        if n:
+            rows = np.zeros((n, 5), dtype=np.float32)
+            rows[:, 0] = self.rng.uniform(-0.2 * w, 1.2 * w, n)
+            rows[:, 1] = self.rng.uniform(-0.3 * h, 0, n)
+            speed = self.rng.uniform(2.2, 3.4, n) * h
+            rows[:, 2] = speed * wind
+            rows[:, 3] = speed
+            rows[:, 4] = self.rng.uniform(0.04, 0.09, n) * h
+            self.drops = np.vstack([self.drops, rows])
+        d = self.drops
+        d[:, 0] += d[:, 2] * dt
+        d[:, 1] += d[:, 3] * dt
+        ground = h - 1 - self.rng.uniform(0, 3 * s, len(d))
+        landed = d[:, 1] >= ground
+        if landed.any():
+            k = int(landed.sum()) * 3
+            src = np.repeat(d[landed], 3, axis=0)
+            sp = np.zeros((k, 5), dtype=np.float32)
+            sp[:, 0] = src[:, 0]
+            sp[:, 1] = h - 2
+            sp[:, 2] = self.rng.normal(0, 0.12 * h, k)
+            sp[:, 3] = -self.rng.uniform(0.1, 0.35, k) * h
+            sp[:, 4] = self.rng.uniform(0.15, 0.35, k)
+            self.splash = np.vstack([self.splash, sp])[-2000:]
+        self.drops = d[~landed]
+
+        buf = self.buf
+        buf *= math.exp(-14.0 * dt)
+        color = self.particle * self.gain
+        d = self.drops
+        if len(d):
+            segs = max(3, int(4 * s))
+            for k in range(segs):
+                f = k / segs
+                x = (d[:, 0] - d[:, 2] / d[:, 3] * d[:, 4] * f).astype(np.int32)
+                y = (d[:, 1] - d[:, 4] * f).astype(np.int32)
+                ok = (x >= 0) & (x < w) & (y >= 0) & (y < h)
+                np.maximum.at(buf, (y[ok], x[ok]), color * (1.0 - 0.8 * f))
+        sp = self.splash
+        if len(sp):
+            sp[:, 0] += sp[:, 2] * dt
+            sp[:, 1] += sp[:, 3] * dt
+            sp[:, 3] += 1.5 * h * dt
+            sp[:, 4] -= dt
+            self.splash = sp = sp[(sp[:, 4] > 0) & (sp[:, 1] < h)]
+            x, y = sp[:, 0].astype(np.int32), sp[:, 1].astype(np.int32)
+            ok = (x >= 0) & (x < w) & (y >= 0)
+            np.maximum.at(buf, (y[ok], x[ok]), color[None, :] * np.minimum(1.0, sp[ok, 4:5] * 4))
+
+        out = self.bg * np.linspace(0.6, 1.0, h, dtype=np.float32)[:, None, None] + buf
+        puddle = max(1, int(2 * s))
+        shimmer = 0.5 + 0.5 * np.sin(np.arange(w) * 0.7 / s + t * 3.0)
+        out[-puddle:] += (color * 0.25)[None, None, :] * shimmer[None, :, None]
+        if self.storm:
+            if self.flash <= 0 and self.rng.random() < dt / 9.0:
+                self.flash = 0.35
+            if self.flash > 0:
+                self.flash -= dt
+                if int(self.flash * 20) % 3:
+                    out = out + 160 * self.gain
+        return np.clip(out, 0, 255).astype(np.uint8)
 
     def frame(self, t: float, dt: float) -> np.ndarray:
+        dt = min(dt, 0.1)
         if self.rain_mode:
-            self._step_rain(dt)
-            out = np.broadcast_to(self.bg_rgb, (self.height, self.width, 3)).copy()
-            trail = self._glass[..., None] * self.particle_rgb
-            out = np.clip(out * (1 - self._glass[..., None] * 0.3) + trail, 0, 255)
-            return out.astype(np.uint8)
-        self._spawn_accum += self.spawn_rate * dt
-        while self._spawn_accum >= 1.0:
-            self._spawn_accum -= 1.0
-            self._spawn_sand(1)
-        for _ in range(self.updates):
-            self._step_sand()
-        return np.clip(self._blit_grid(), 0, 255).astype(np.uint8)
+            return self._frame_rain(t, dt)
+        return self._frame_sand(t, dt)
 
 
 class SandMode(EffectMode):

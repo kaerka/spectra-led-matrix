@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
+from PIL import Image, ImageDraw, ImageFilter
 
 from display.modes.effect_base import EffectField, EffectMode
 
 _RPM = (8.0, 18.0, 32.0, 55.0)
-
-
-def _line(buf: np.ndarray, x0: float, y0: float, x1: float, y1: float, color: np.ndarray) -> None:
-    h, w = buf.shape[:2]
-    steps = max(abs(int(round(x1 - x0))), abs(int(round(y1 - y0))), 1)
-    for i in range(steps + 1):
-        t = i / steps
-        x = int(round(x0 + (x1 - x0) * t))
-        y = int(round(y0 + (y1 - y0) * t))
-        if 0 <= x < w and 0 <= y < h:
-            buf[y, x] = color
+_SS = 3  # supersampling for anti-aliased lines
+_PERSIST = 22.0  # phosphor decay per second
 
 
 def _rot_xyz(points: np.ndarray, ax: float, ay: float, az: float) -> np.ndarray:
@@ -88,25 +82,39 @@ class WireframeField(EffectField):
         self.rpm = _RPM[values["speed"]]
         self.is_torus = values["shape"] == 1
         short = min(width, height)
-        self.proj_scale = short * 0.28
+        self.proj_scale = short * 0.42
         self.color = np.clip(np.asarray(settings.stops[0], dtype=np.float32) * settings.gain, 0, 255)
         if self.is_torus:
-            nu = 12 if short >= 128 else 10
-            nv = 8 if short >= 96 else 6
+            nu = 16 if short >= 128 else 9
+            nv = 8 if short >= 96 else 5
             self.verts, self.edges = _torus_mesh(nu, nv)
         else:
             self.verts, self.edges = _cube_edges()
+        self.line_w = max(1, round(_SS * short / 128))
+        self.glow_r = max(1.0, short / 64)
+        self.persist = np.zeros((height, width), dtype=np.float32)
 
     def frame(self, t: float, dt: float) -> np.ndarray:
         ang = t * self.rpm * 2 * np.pi / 60.0
         p = _rot_xyz(self.verts, ang * 0.7, ang, ang * 0.45)
         z = p[:, 2] + 3.2
-        sx = p[:, 0] / z * self.proj_scale + self.width / 2
-        sy = p[:, 1] / z * self.proj_scale + self.height / 2
-        out = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        ss = _SS
+        sx = (p[:, 0] / z * self.proj_scale + self.width / 2) * ss
+        sy = (p[:, 1] / z * self.proj_scale + self.height / 2) * ss
+        img = Image.new("L", (self.width * ss, self.height * ss))
+        draw = ImageDraw.Draw(img)
+        z_lo, z_hi = float(z.min()), float(z.max())
         for i, j in self.edges:
-            _line(out, sx[i], sy[i], sx[j], sy[j], self.color)
-        return out
+            depth = ((z[i] + z[j]) / 2 - z_lo) / max(1e-6, z_hi - z_lo)
+            level = int(255 * (1.0 - 0.6 * depth))
+            draw.line([(sx[i], sy[i]), (sx[j], sy[j])], fill=level, width=self.line_w)
+        sharp = img.reduce(ss)
+        glow = sharp.filter(ImageFilter.GaussianBlur(self.glow_r))
+        lines = np.asarray(sharp, dtype=np.float32) / 255.0
+        halo = np.asarray(glow, dtype=np.float32) / 255.0
+        intensity = np.minimum(1.0, lines + halo * 0.9)
+        self.persist = np.maximum(intensity, self.persist * math.exp(-_PERSIST * dt))
+        return np.clip(self.persist[..., None] * self.color, 0, 255).astype(np.uint8)
 
 
 class WireframeMode(EffectMode):

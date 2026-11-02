@@ -1,105 +1,133 @@
-"""Falling — stick figure tumbling while cave walls scroll upward."""
+"""Falling — a flailing stick figure tumbles down an endless cave with parallax walls."""
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
+from PIL import Image, ImageDraw
 
 from display.modes.effect_base import EffectField, EffectMode
 
-_SCROLL_PX_S = (18.0, 32.0, 52.0, 85.0)
-# Stick-figure height in px at 64 px short side (scaled).
-_FIG_H = (5.0, 7.0, 9.0)
-# Simple upright stick figure in normalized coords (x right, y down), center ~ (0, 0).
-_FIG_PARTS = (
-    ((0.0, -0.45), 0.12),   # head
-    ((0.0, -0.15), 0.08),   # torso
-    ((-0.22, 0.05), 0.06),  # left arm
-    ((0.22, 0.05), 0.06),   # right arm
-    ((-0.14, 0.42), 0.06),  # left leg
-    ((0.14, 0.42), 0.06),   # right leg
-)
+_SCROLL = (0.35, 0.6, 1.0, 1.6)  # canvas heights per second (front wall layer)
+_FIG = 0.30  # figure height as share of the short side
 
 
-def _rotate_pts(pts: np.ndarray, angle: float) -> np.ndarray:
-    c, s = np.cos(angle), np.sin(angle)
-    rot = np.array([[c, -s], [s, c]], dtype=np.float32)
-    return pts @ rot.T
+def _profile(n: int, rng: np.random.Generator, octaves=((0.004, 1.0), (0.013, 0.45), (0.05, 0.18))) -> np.ndarray:
+    """Smooth periodic 1-D noise in [0, 1] built from a few sine octaves."""
+    y = np.arange(n, dtype=np.float32)
+    out = np.zeros(n, dtype=np.float32)
+    for freq, amp in octaves:
+        k = max(1, round(freq * n))
+        for _ in range(2):
+            out += amp * np.sin(2 * np.pi * k * y / n + rng.uniform(0, 2 * np.pi)) / 2
+    out += 0.06 * rng.uniform(-1, 1, n).astype(np.float32)
+    out -= out.min()
+    return out / max(1e-6, out.max())
+
+
+class _Layer:
+    def __init__(self, field: "FallingField", depth: float) -> None:
+        w, h = field.width, field.height
+        self.depth = depth
+        self.period = 4 * h
+        rng = field.rng
+        width_frac = 0.12 + 0.22 * depth
+        self.left = (0.02 + width_frac * _profile(self.period, rng)) * w
+        self.right = (0.02 + width_frac * _profile(self.period, rng)) * w
+        self.color = field.wall * (0.25 + 0.75 * (1 - depth))
+        self.edge = np.minimum(255, self.color * 1.6 + 10)
+        self.speed = field.scroll * (1 - 0.6 * depth)
+        self.offset = float(rng.uniform(0, self.period))
+        self.xs = np.arange(w, dtype=np.float32)[None, :]
+
+    def paint(self, out: np.ndarray, dt: float) -> None:
+        self.offset = (self.offset + self.speed * dt) % self.period
+        h, w = out.shape[:2]
+        rows = ((np.arange(h) + self.offset) % self.period).astype(np.int32)
+        left = self.left[rows][:, None]
+        right = (w - 1 - self.right[rows])[:, None]
+        wall = (self.xs <= left) | (self.xs >= right)
+        lip = ((self.xs > left - 1.5) & (self.xs <= left)) | ((self.xs < right + 1.5) & (self.xs >= right))
+        out[wall] = self.color
+        out[lip] = self.edge
 
 
 class FallingField(EffectField):
     def __init__(self, width, height, settings, seed=None) -> None:
         super().__init__(width, height, settings, seed)
-        values = settings.values
         short = min(width, height)
-        self.scroll_rate = _SCROLL_PX_S[values["speed"]] * (short / 64.0)
-        mid = _FIG_H[1] * short / 64.0
-        self.fig_h = max(5, min(9, round(mid)))
-        self.fig_rgb = np.asarray(settings.stops[0], dtype=np.float32) * settings.gain
-        self.wall_rgb = np.asarray(settings.stops[1 % len(settings.stops)], dtype=np.float32) * settings.gain
-        self.bg_rgb = self.wall_rgb * 0.15
-        self._scroll = 0.0
-        self._spin = 0.0
-        self._spin_rate = self.rng.uniform(2.2, 3.8)
-        # Tiling cave profile: jagged inward edges per row.
-        period = max(height * 2, 128)
-        self._period = period
-        self._left = self._make_edge_profile(period, inward=1.0)
-        self._right = self._make_edge_profile(period, inward=-1.0)
+        self.scale = short / 64.0
+        self.scroll = _SCROLL[settings.values["speed"]] * height
+        gain = settings.gain
+        self.fig_rgb = tuple(int(c * gain) for c in settings.stops[0])
+        self.wall = np.asarray(settings.stops[1 % len(settings.stops)], dtype=np.float32) * gain
+        self.bg_top = self.wall * 0.08
+        self.layers = [_Layer(self, 0.8), _Layer(self, 0.4), _Layer(self, 0.0)]
+        self.fig_h = _FIG * short
+        self.spin = float(self.rng.uniform(0, 2 * np.pi))
+        self.spin_rate = float(self.rng.uniform(1.4, 2.6)) * (1 if self.rng.random() < 0.5 else -1)
+        self.drift = 0.0
+        n = int(30 * self.scale)
+        self.dust = np.column_stack(
+            (self.rng.uniform(0, width, n), self.rng.uniform(0, height, n), self.rng.uniform(0.3, 1.0, n))
+        ).astype(np.float32)
+        y = np.linspace(1.0, 0.4, height, dtype=np.float32)[:, None, None]
+        self.bg = np.broadcast_to(self.bg_top * y, (height, width, 3)).astype(np.float32)
 
-    def _make_edge_profile(self, period: int, inward: float) -> np.ndarray:
-        """Rough rocky edge offset (px) per scanline in the tile."""
-        rng = self.rng
-        raw = rng.uniform(-1, 1, period).astype(np.float32)
-        # Smooth noise into jagged cliffs.
-        k = 7
-        kernel = np.ones(k, dtype=np.float32) / k
-        smooth = np.convolve(raw, kernel, mode="same")
-        jagged = smooth + 0.35 * rng.uniform(-1, 1, period).astype(np.float32)
-        scale = max(3, self.width // 14)
-        return (inward * np.abs(jagged) * scale + scale * 0.6).astype(np.float32)
+    def _figure(self, draw: ImageDraw.ImageDraw, t: float) -> None:
+        cx = self.width / 2 + math.sin(t * 0.6) * self.width * 0.08
+        cy = self.height * 0.45 + math.sin(t * 0.9) * self.height * 0.04
+        s = self.fig_h / 2
+        a = self.spin
+        ca, sa = math.cos(a), math.sin(a)
 
-    def _wall_mask(self, scroll_y: float) -> np.ndarray:
-        h, w = self.height, self.width
-        yy = (np.arange(h, dtype=np.float32) + scroll_y) % self._period
-        yi = yy.astype(int)
-        left_in = self._left[yi]
-        right_in = self._right[yi]
-        xx = np.arange(w, dtype=np.float32)
-        left_wall = xx[None, :] <= left_in[:, None]
-        right_wall = xx[None, :] >= (w - 1 - right_in[:, None])
-        return left_wall | right_wall
+        def p(x: float, y: float) -> tuple[float, float]:
+            return cx + (x * ca - y * sa) * s, cy + (x * sa + y * ca) * s
 
-    def _draw_figure(self, out: np.ndarray, t: float) -> None:
-        cx = self.width * 0.5
-        cy = self.height * 0.52
-        angle = self._spin
-        scale = self.fig_h * 0.5
-        rgb = self.fig_rgb
-        for (px, py), rad in _FIG_PARTS:
-            pt = np.array([[px, py]], dtype=np.float32)
-            pt = _rotate_pts(pt, angle) * scale + np.array([cx, cy], dtype=np.float32)
-            x, y = int(round(pt[0, 0])), int(round(pt[0, 1]))
-            r = max(1, int(round(rad * scale)))
-            y0, y1 = max(0, y - r), min(self.height, y + r + 1)
-            x0, x1 = max(0, x - r), min(self.width, x + r + 1)
-            if y1 <= y0 or x1 <= x0:
-                continue
-            yy, xx = np.ogrid[y0:y1, x0:x1]
-            mask = (xx - x) ** 2 + (yy - y) ** 2 <= r * r
-            out[y0:y1, x0:x1][mask] = rgb
+        flail = t * 11.0
+        neck, hip = (0.0, -0.45), (0.0, 0.25)
+        width = max(1, int(round(self.scale * 1.1)))
+        color = self.fig_rgb
+        draw.line([p(*neck), p(*hip)], fill=color, width=width)
+        for side, phase in ((-1, 0.0), (1, 1.7)):
+            arm = 2.2 + 0.7 * math.sin(flail + phase)
+            elbow = (side * 0.32 * math.sin(arm) * 1.0, -0.40 - 0.32 * math.cos(arm))
+            hand = (elbow[0] + side * 0.28 * math.sin(arm + 0.6 * math.sin(flail * 1.3 + phase)), elbow[1] - 0.28 * math.cos(arm + 0.5))
+            draw.line([p(*neck), p(*elbow), p(*hand)], fill=color, width=width)
+            kick = 0.35 + 0.35 * math.sin(flail * 0.8 + phase + 0.9)
+            knee = (side * 0.22 * math.sin(kick) + side * 0.06, 0.25 + 0.32 * math.cos(kick))
+            foot = (knee[0] + side * 0.05, knee[1] + 0.32)
+            draw.line([p(*hip), p(*knee), p(*foot)], fill=color, width=width)
+        hx, hy = p(0.0, -0.66)
+        r = 0.2 * s
+        draw.ellipse([hx - r, hy - r, hx + r, hy + r], outline=color, width=width, fill=(0, 0, 0))
+        if self.scale >= 2:
+            # Wide-open "O" mouth, facing the way the head points.
+            mx, my = p(0.06, -0.62)
+            mr = max(1.0, 0.045 * s)
+            draw.ellipse([mx - mr, my - mr, mx + mr, my + mr], fill=color)
 
     def frame(self, t: float, dt: float) -> np.ndarray:
-        self._scroll += self.scroll_rate * dt
-        self._spin += self._spin_rate * dt
-        out = np.broadcast_to(self.bg_rgb, (self.height, self.width, 3)).copy()
-        wall = self._wall_mask(self._scroll)
-        out[wall] = self.wall_rgb
-        # Darken wall interior slightly for depth.
-        hole = ~wall
-        if hole.any():
-            out[hole] *= 0.35
-        self._draw_figure(out, t)
-        return np.clip(out, 0, 255).astype(np.uint8)
+        dt = min(dt, 0.1)
+        self.spin += self.spin_rate * dt
+        out = self.bg.copy()
+        d = self.dust
+        d[:, 1] -= self.scroll * 1.3 * d[:, 2] * dt
+        wrap = d[:, 1] < 0
+        d[wrap, 1] += self.height
+        d[wrap, 0] = self.rng.uniform(0, self.width, int(wrap.sum()))
+        streak = max(2, int(self.scroll * 0.03))
+        for k in range(streak):
+            ys = (d[:, 1] + k).astype(np.int32)
+            xs = d[:, 0].astype(np.int32)
+            ok = (ys >= 0) & (ys < self.height)
+            out[ys[ok], xs[ok]] = np.maximum(out[ys[ok], xs[ok]], self.wall[None, :] * 0.5 * d[ok, 2:3] * (1 - k / streak))
+        for layer in self.layers:
+            layer.paint(out, dt)
+        img = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+        self._figure(ImageDraw.Draw(img), t)
+        return np.asarray(img)
 
 
 class FallingMode(EffectMode):

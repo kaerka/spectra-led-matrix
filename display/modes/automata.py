@@ -1,24 +1,39 @@
-"""Cellular automata pack: Langton, Brian, Wireworld, Gray–Scott RD."""
+"""Cellular automata pack: Langton's ants, Brian's Brain, Wireworld circuits, Gray-Scott RD."""
 
 from __future__ import annotations
 
 import numpy as np
+from PIL import Image
 
 from display.modes.effect_base import EffectField, EffectMode
 
-_STEPS_PER_FRAME = (1, 2, 4, 8)
-_STATIC_LIMIT = 120
+_ANT_STEPS = (30, 90, 250, 700)  # per frame, shared by all ants
+_CA_STEPS = (1, 1, 2, 3)  # Brian / Wireworld generations per frame
+_CA_EVERY = (3, 2, 1, 1)  # ... every N frames
+_RD_STEPS = (4, 8, 14, 22)
+_RESEED_S = 150.0
+# Gray-Scott (feed, kill) regimes that make good moving pictures.
+_RD_REGIMES = ((0.0367, 0.0649), (0.030, 0.062), (0.046, 0.063), (0.025, 0.060), (0.039, 0.058))
 
 
-def _grid_dims(w: int, h: int, kind: int) -> tuple[int, int, int]:
-    short = min(w, h)
-    if kind == 3:  # RD — smaller for cost.
-        cell = max(2, short // 32)
-    else:
-        cell = 2 if short >= 96 else 1
-    cols = max(8, w // cell)
-    rows = max(8, h // cell)
-    return cell, cols, rows
+def _cell_size(short: int, kind: int) -> int:
+    if kind == 0:  # Langton
+        return 2 if short >= 96 else 1
+    if kind == 1:  # Brian
+        return 2 if short >= 128 else 1
+    if kind == 2:  # Wireworld
+        return 3 if short >= 128 else 1
+    return 2 if short >= 96 else 1  # RD, bilinear-upsampled
+
+
+def _neighbours(a: np.ndarray) -> np.ndarray:
+    """8-neighbour sum on a torus."""
+    p = np.pad(a, 1, mode="wrap")
+    return (
+        p[:-2, :-2] + p[:-2, 1:-1] + p[:-2, 2:]
+        + p[1:-1, :-2] + p[1:-1, 2:]
+        + p[2:, :-2] + p[2:, 1:-1] + p[2:, 2:]
+    )
 
 
 class AutomataField(EffectField):
@@ -26,188 +41,183 @@ class AutomataField(EffectField):
         super().__init__(width, height, settings, seed)
         values = settings.values
         self.kind = values["kind"]
-        self.steps = _STEPS_PER_FRAME[values["speed"]]
-        self.cell, self.cols, self.rows = _grid_dims(width, height, self.kind)
+        self.speed = values["speed"]
+        self.cell = _cell_size(min(width, height), self.kind)
+        self.cols = max(8, width // self.cell)
+        self.rows = max(8, height // self.cell)
         self.x_off = (width - self.cols * self.cell) // 2
         self.y_off = (height - self.rows * self.cell) // 2
         stops = settings.stops
-        self.colors = [
-            np.asarray(stops[i % len(stops)], dtype=np.float32) * settings.gain
-            for i in range(4)
-        ]
-        self._static_count = 0
+        self.colors = [np.asarray(stops[i % len(stops)], dtype=np.float32) * settings.gain for i in range(4)]
+        self._frame_n = 0
+        self._age = 0.0
         self._reseed()
 
+    # ------------------------------------------------------------ seeding
+
     def _reseed(self) -> None:
-        rng = self.rng
         c, r = self.cols, self.rows
-        k = self.kind
-        if k == 0:
+        rng = self.rng
+        self._age = 0.0
+        if self.kind == 0:
             self.grid = np.zeros((r, c), dtype=np.uint8)
-            self.ant_x = c // 2
-            self.ant_y = r // 2
-            self.ant_dir = 0  # 0=N,1=E,2=S,3=W
-            self.grid[self.ant_y, self.ant_x] = 1
-        elif k == 1:
-            self.grid = (rng.random((r, c)) < 0.18).astype(np.uint8)
-        elif k == 2:
+            n = 1 + int(rng.integers(2, 5))
+            self.ants = [
+                [int(rng.integers(c // 4, 3 * c // 4)), int(rng.integers(r // 4, 3 * r // 4)), int(rng.integers(4)), i]
+                for i in range(n)
+            ]
+        elif self.kind == 1:
             self.grid = np.zeros((r, c), dtype=np.uint8)
+            for _ in range(int(rng.integers(3, 7))):
+                cx, cy = int(rng.integers(c)), int(rng.integers(r))
+                rad = int(rng.integers(3, max(4, min(c, r) // 6)))
+                y0, x0 = max(0, cy - rad), max(0, cx - rad)
+                patch = rng.random((min(r, cy + rad) - y0, min(c, cx + rad) - x0)) < 0.35
+                self.grid[y0 : y0 + patch.shape[0], x0 : x0 + patch.shape[1]][patch] = 1
+        elif self.kind == 2:
             self._seed_wireworld()
         else:
+            f, k = _RD_REGIMES[int(rng.integers(len(_RD_REGIMES)))]
+            self.f, self.k = f, k
             self.u = np.ones((r, c), dtype=np.float32)
             self.v = np.zeros((r, c), dtype=np.float32)
-            cx, cy = c // 2, r // 2
-            rad = max(2, min(c, r) // 6)
-            yy, xx = np.ogrid[:r, :c]
-            mask = (xx - cx) ** 2 + (yy - cy) ** 2 <= rad * rad
-            self.u[mask] = 0.5
-            self.v[mask] = 0.25 + rng.random(mask.sum()) * 0.1
-        self._static_count = 0
-        self._prev_hash = None
+            for _ in range(int(rng.integers(6, 14))):
+                cx, cy = int(rng.integers(c)), int(rng.integers(r))
+                rad = max(2, min(c, r) // 20)
+                yy, xx = np.ogrid[:r, :c]
+                m = (xx - cx) ** 2 + (yy - cy) ** 2 <= rad * rad
+                self.u[m] = 0.5
+                self.v[m] = 0.25 + rng.random(int(m.sum())) * 0.1
 
     def _seed_wireworld(self) -> None:
+        """Clock loops with circulating electrons, each firing pulses down a spur wire."""
+        c, r = self.cols, self.rows
+        rng = self.rng
+        g = np.zeros((r, c), dtype=np.uint8)
+        loops = []
+        for _ in range(40):
+            if len(loops) >= max(4, (c * r) // 260):
+                break
+            w = int(rng.integers(6, max(7, c // 3)))
+            h = int(rng.integers(5, max(6, r // 3)))
+            x0 = int(rng.integers(1, max(2, c - w - 1)))
+            y0 = int(rng.integers(1, max(2, r - h - 1)))
+            if any(not (x0 + w + 2 < a or a + b + 2 < x0 or y0 + h + 2 < y or y + d + 2 < y0) for a, y, b, d in loops):
+                continue
+            g[y0, x0 : x0 + w + 1] = 1
+            g[y0 + h, x0 : x0 + w + 1] = 1
+            g[y0 : y0 + h + 1, x0] = 1
+            g[y0 : y0 + h + 1, x0 + w] = 1
+            loops.append((x0, y0, w, h))
+            k = int(rng.integers(2, w - 1))
+            g[y0, x0 + k] = 2
+            g[y0, x0 + k - 1] = 3
+        for x0, y0, w, h in loops:
+            y = y0 + h // 2
+            right = rng.random() < 0.5
+            x = x0 + w + 1 if right else x0 - 1
+            step = 1 if right else -1
+            while 0 < x < c - 1 and g[y - 1 : y + 2, x + step].sum() == 0 and g[y - 1 : y + 2, x + 2 * step if 0 <= x + 2 * step < c else x].sum() == 0:
+                g[y, x] = 1
+                x += step
+        self.grid = g
+
+    # --------------------------------------------------------------- steps
+
+    def _step_ants(self, steps: int) -> None:
         g = self.grid
         c, r = self.cols, self.rows
-        g[:] = 1  # conductor
-        # Simple horizontal wire with electron packet.
-        y = r // 2
-        x0 = max(2, c // 8)
-        x1 = min(c - 3, c * 3 // 4)
-        g[y, x0:x1] = 1
-        if x1 - x0 > 6:
-            g[y, x0 + 2] = 2
-            g[y, x0 + 3] = 3
-        # Small loop clock.
-        ly, lx = max(2, r // 4), max(2, c // 5)
-        for i in range(6):
-            g[ly, lx + i] = 1
-            g[ly + i, lx + 5] = 1
-        g[ly + 2, lx + 2] = 2
-        g[ly + 2, lx + 3] = 3
-        # Clear corners to empty.
-        g[0, :] = 0
-        g[-1, :] = 0
-        g[:, 0] = 0
-        g[:, -1] = 0
-
-    def _step_langton(self) -> None:
-        x, y = self.ant_x, self.ant_y
-        g = self.grid
-        if g[y, x]:
-            self.ant_dir = (self.ant_dir + 1) % 4
-            g[y, x] = 0
-        else:
-            self.ant_dir = (self.ant_dir + 3) % 4
-            g[y, x] = 1
-        dx, dy = ((0, -1), (1, 0), (0, 1), (-1, 0))[self.ant_dir]
-        self.ant_x = (x + dx) % self.cols
-        self.ant_y = (y + dy) % self.rows
+        for _ in range(steps // len(self.ants)):
+            for ant in self.ants:
+                x, y, d, idx = ant
+                if g[y, x]:
+                    d = (d + 1) % 4
+                    g[y, x] = 0
+                else:
+                    d = (d + 3) % 4
+                    g[y, x] = 1 + idx % 3
+                dx, dy = ((0, -1), (1, 0), (0, 1), (-1, 0))[d]
+                ant[0], ant[1], ant[2] = (x + dx) % c, (y + dy) % r, d
 
     def _step_brian(self) -> None:
-        g = self.grid.astype(np.int8)
-        firing = (g == 1).astype(np.int8)
-        nbr = (
-            np.roll(firing, 1, 0) + np.roll(firing, -1, 0)
-            + np.roll(firing, 1, 1) + np.roll(firing, -1, 1)
-            + np.roll(np.roll(firing, 1, 0), 1, 1) + np.roll(np.roll(firing, 1, 0), -1, 1)
-            + np.roll(np.roll(firing, -1, 0), 1, 1) + np.roll(np.roll(firing, -1, 0), -1, 1)
-        )
-        next_g = np.zeros_like(g)
-        next_g[(g == 0) & (nbr == 2)] = 1
-        next_g[g == 1] = 2
-        next_g[g == 2] = 0
-        self.grid = next_g.astype(np.uint8)
+        g = self.grid
+        nbr = _neighbours((g == 1).astype(np.uint8))
+        nxt = np.zeros_like(g)
+        nxt[(g == 0) & (nbr == 2)] = 1
+        nxt[g == 1] = 2
+        self.grid = nxt
 
     def _step_wireworld(self) -> None:
-        g = self.grid.astype(np.int8)
-        head = (g == 2).astype(np.int8)
-        nbr_heads = (
-            np.roll(head, 1, 0) + np.roll(head, -1, 0)
-            + np.roll(head, 1, 1) + np.roll(head, -1, 1)
-            + np.roll(np.roll(head, 1, 0), 1, 1) + np.roll(np.roll(head, 1, 0), -1, 1)
-            + np.roll(np.roll(head, -1, 0), 1, 1) + np.roll(np.roll(head, -1, 0), -1, 1)
-        )
-        next_g = g.copy()
-        next_g[g == 2] = 3
-        next_g[g == 3] = 1
-        next_g[(g == 1) & ((nbr_heads == 1) | (nbr_heads == 2))] = 2
-        self.grid = next_g.astype(np.uint8)
+        g = self.grid
+        heads = _neighbours((g == 2).astype(np.uint8))
+        nxt = g.copy()
+        nxt[g == 2] = 3
+        nxt[g == 3] = 1
+        nxt[(g == 1) & ((heads == 1) | (heads == 2))] = 2
+        self.grid = nxt
 
     def _step_rd(self) -> None:
         u, v = self.u, self.v
-        Du, Dv, f, k = 0.16, 0.08, 0.035, 0.065
-        lap_u = (
-            np.roll(u, 1, 0) + np.roll(u, -1, 0)
-            + np.roll(u, 1, 1) + np.roll(u, -1, 1) - 4 * u
-        )
-        lap_v = (
-            np.roll(v, 1, 0) + np.roll(v, -1, 0)
-            + np.roll(v, 1, 1) + np.roll(v, -1, 1) - 4 * v
-        )
+        pu = np.pad(u, 1, mode="wrap")
+        pv = np.pad(v, 1, mode="wrap")
+        lap_u = pu[:-2, 1:-1] + pu[2:, 1:-1] + pu[1:-1, :-2] + pu[1:-1, 2:] - 4 * u
+        lap_v = pv[:-2, 1:-1] + pv[2:, 1:-1] + pv[1:-1, :-2] + pv[1:-1, 2:] - 4 * v
         uvv = u * v * v
-        du = Du * lap_u - uvv + f * (1 - u)
-        dv = Dv * lap_v + uvv - (f + k) * v
-        self.u = np.clip(u + du, 0, 1)
-        self.v = np.clip(v + dv, 0, 1)
+        u += 0.21 * lap_u - uvv + self.f * (1 - u)
+        v += 0.105 * lap_v + uvv - (self.f + self.k) * v
+        np.clip(u, 0, 1, out=u)
+        np.clip(v, 0, 1, out=v)
 
-    def _sim_step(self) -> None:
-        if self.kind == 0:
-            self._step_langton()
-        elif self.kind == 1:
-            self._step_brian()
-        elif self.kind == 2:
-            self._step_wireworld()
-        else:
-            self._step_rd()
+    # ------------------------------------------------------------- drawing
 
-    def _state_hash(self) -> int:
+    def _rgb(self) -> np.ndarray:
+        dead, alive, accent, spark = self.colors[1], self.colors[0], self.colors[2], self.colors[3]
         if self.kind == 3:
-            return hash((self.u.tobytes(), self.v.tobytes()))
-        return hash(self.grid.tobytes())
-
-    def _maybe_reseed(self) -> None:
-        h = self._state_hash()
-        if h == self._prev_hash:
-            self._static_count += 1
-        else:
-            self._static_count = 0
-        self._prev_hash = h
-        if self._static_count >= _STATIC_LIMIT:
-            self._reseed()
-
-    def _grid_to_rgb(self) -> np.ndarray:
-        g = self.grid if self.kind != 3 else None
-        grid_rgb = np.zeros((self.rows, self.cols, 3), dtype=np.float32)
+            t = np.clip(self.v / 0.45, 0, 1)[..., None]
+            rgb = dead * (1 - t) + alive * t
+            edge = np.clip((self.v - 0.18) * 6, 0, 1) * np.clip((0.5 - self.u) * 4, 0, 1)
+            return rgb * (1 - edge[..., None] * 0.5) + spark * edge[..., None] * 0.5
         if self.kind == 0:
-            grid_rgb[g == 0] = self.colors[1]
-            grid_rgb[g == 1] = self.colors[0]
+            lut = np.stack([dead, alive, accent, spark])
         elif self.kind == 1:
-            grid_rgb[g == 0] = self.colors[1]
-            grid_rgb[g == 1] = self.colors[0]
-            grid_rgb[g == 2] = self.colors[2]
-        elif self.kind == 2:
-            grid_rgb[g == 0] = self.colors[1]
-            grid_rgb[g == 1] = self.colors[0] * 0.55
-            grid_rgb[g == 2] = self.colors[2]
-            grid_rgb[g == 3] = self.colors[3]
+            lut = np.stack([dead, alive, accent * 0.6, spark])
         else:
-            t = np.clip(self.v / 0.6, 0, 1)
-            grid_rgb = self.colors[1] * (1 - t[..., None]) + self.colors[0] * t[..., None]
-            spark = (self.u < 0.35) & (self.v > 0.2)
-            grid_rgb[spark] = self.colors[3]
-        return grid_rgb
+            lut = np.stack([dead, accent * 0.45, spark, alive])
+        return lut[self.grid]
 
     def frame(self, t: float, dt: float) -> np.ndarray:
-        for _ in range(self.steps):
-            self._sim_step()
-        self._maybe_reseed()
-        grid_rgb = self._grid_to_rgb()
+        self._frame_n += 1
+        self._age += dt
+        k = self.kind
+        if k == 0:
+            self._step_ants(_ANT_STEPS[self.speed])
+        elif k in (1, 2) and self._frame_n % _CA_EVERY[self.speed] == 0:
+            for _ in range(_CA_STEPS[self.speed]):
+                self._step_brian() if k == 1 else self._step_wireworld()
+        elif k == 3:
+            for _ in range(_RD_STEPS[self.speed]):
+                self._step_rd()
+
+        dead = (k == 1 and not (self.grid == 1).any()) or (k == 3 and self.v.max() < 0.02)
+        if dead or self._age > _RESEED_S * (2 if k == 2 else 1):
+            self._reseed()
+
+        rgb = np.clip(self._rgb(), 0, 255).astype(np.uint8)
+        if k == 0:
+            for x, y, _, _ in self.ants:
+                rgb[y, x] = np.clip(self.colors[3] * 1.2 + 40, 0, 255).astype(np.uint8)
         c = self.cell
-        big = np.repeat(np.repeat(grid_rgb, c, axis=0), c, axis=1)
-        out = np.broadcast_to(self.colors[1], (self.height, self.width, 3)).copy()
-        h, w = big.shape[:2]
-        out[self.y_off:self.y_off + h, self.x_off:self.x_off + w] = big
-        return np.clip(out, 0, 255).astype(np.uint8)
+        if c > 1:
+            img = Image.fromarray(rgb)
+            resample = Image.BILINEAR if k == 3 else Image.NEAREST
+            rgb = np.asarray(img.resize((self.cols * c, self.rows * c), resample))
+        if rgb.shape[:2] == (self.height, self.width):
+            return rgb
+        out = np.zeros((self.height, self.width, 3), dtype=np.uint8)
+        out[:] = np.clip(self.colors[1], 0, 255).astype(np.uint8)
+        h, w = rgb.shape[:2]
+        out[self.y_off : self.y_off + h, self.x_off : self.x_off + w] = rgb
+        return out
 
 
 class AutomataMode(EffectMode):

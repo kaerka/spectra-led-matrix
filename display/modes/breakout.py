@@ -1,145 +1,218 @@
-"""Self-playing Breakout — paddle AI, bricks rebuild when cleared."""
+"""Self-playing Breakout — smooth ball physics, aimed paddle, brick shards, rebuilds."""
 
 from __future__ import annotations
+
+import math
 
 import numpy as np
 
 from display.modes.effect_base import EffectField, EffectMode
 
-_STEP_S = (0.055, 0.035, 0.022, 0.014)
-_BALL_SPD = (0.42, 0.62, 0.92, 1.35)
+_BALL_SPEED = (0.45, 0.70, 1.0, 1.45)  # canvas heights per second
+_LIVES = 3
+_PAUSE_S = 1.0
+_CLEAR_S = 1.5
 
 
 class BreakoutField(EffectField):
     def __init__(self, width, height, settings, seed=None) -> None:
         super().__init__(width, height, settings, seed)
-        values = settings.values
-        self.step_s = _STEP_S[values["speed"]]
-        short = min(width, height)
-        self.cell = 2 if short >= 128 else (2 if short >= 80 else 1)
-        self.cols = width // self.cell
-        self.rows = height // self.cell
-        self.x_off = (width - self.cols * self.cell) // 2
-        self.y_off = (height - self.rows * self.cell) // 2
         gain = settings.gain
-        self.ball_rgb = np.asarray(settings.stops[0], dtype=np.float32) * gain
+        stops = settings.stops
+        self.ball_rgb = np.asarray(stops[0], dtype=np.float32) * gain
         self.paddle_rgb = self.ball_rgb * 0.85
-        n_rows = min(4, max(1, len(settings.stops) - 1))
-        self.brick_rgbs = [
-            np.asarray(settings.stops[1 + i % max(1, len(settings.stops) - 1)], dtype=np.float32) * gain
-            for i in range(n_rows)
-        ]
-        self.n_brick_rows = n_rows
-        self.paddle_w = max(4, self.cols // 6)
-        self.paddle_y = self.rows - 2
-        self._ball_spd = _BALL_SPD[values["speed"]]
-        self._accum = 0.0
-        self._reset()
+        bricks = stops[1:] or stops
+        self.brick_rgbs = [np.asarray(c, dtype=np.float32) * gain for c in bricks[:4]]
 
-    def _reset(self) -> None:
-        self.bricks = np.ones((self.n_brick_rows, self.cols), dtype=bool)
-        top = 2
-        for r in range(self.n_brick_rows):
-            self.bricks[r, :] = True
-        self._brick_y0 = top
-        self.paddle_x = self.cols // 2 - self.paddle_w // 2
-        self.ball_x = self.cols / 2.0
-        self.ball_y = float(self.paddle_y - 2)
-        ang = float(self.rng.uniform(-0.8, 0.8))
-        self.vx = self._ball_spd * float(np.sin(ang))
-        self.vy = -abs(self._ball_spd * float(np.cos(ang)))
+        short = min(width, height)
+        self.u = u = max(1, round(short / 64))
+        self.cols = 8 if width < 96 else 12
+        self.n_rows = 2 * len(self.brick_rgbs) if short >= 96 else len(self.brick_rgbs)
+        self.gap = 1
+        self.bw = (width - 2 * u) // self.cols
+        self.bx0 = (width - self.bw * self.cols) // 2
+        self.bh = max(2, 2 * u)
+        self.top = max(3, round(height * 0.12))
+        self.ball = max(2, u + 1)
+        self.pad_w = max(10, round(width * 0.15))
+        self.pad_h = max(2, u + 1)
+        self.pad_y = height - self.pad_h - max(2, u * 2)
+        self.base_speed = _BALL_SPEED[settings.values["speed"]] * height
+        self.pad_speed = self.base_speed * 1.3
+        self.shards: list[list] = []
+        self._new_wall()
 
-    def _paddle_target(self) -> float:
-        t = self.ball_x
-        if self.vy > 0:
-            t += self.vx * max(0, (self.paddle_y - self.ball_y) / max(self.vy, 0.05))
-        return t + float(self.rng.uniform(-1.5, 1.5))
+    def _new_wall(self) -> None:
+        self.bricks = np.ones((self.n_rows, self.cols), dtype=bool)
+        self.lives = _LIVES
+        self.clear_t = 0.0
+        self.pad_x = self.width / 2.0
+        self._new_ball()
 
-    def _step(self) -> None:
-        target = self._paddle_target()
-        px = self.paddle_x + self.paddle_w / 2
-        err = target - px
-        step = max(1.0, self.paddle_w / 4.0)
-        if err > step:
-            self.paddle_x += int(step)
-        elif err < -step:
-            self.paddle_x -= int(step)
-        self.paddle_x = int(np.clip(self.paddle_x, 1, self.cols - self.paddle_w - 1))
+    def _new_ball(self) -> None:
+        self.bx, self.by = self.pad_x, self.pad_y - self.ball
+        ang = float(self.rng.uniform(-0.7, 0.7))
+        self.speed = self.base_speed
+        self.vx = self.speed * math.sin(ang)
+        self.vy = -self.speed * math.cos(ang)
+        self.pause = _PAUSE_S
+        self.aim = self.pad_x
 
-        self.ball_x += self.vx
-        self.ball_y += self.vy
+    def _brick_rect(self, r: int, c: int) -> tuple[float, float, float, float]:
+        x0 = self.bx0 + c * self.bw
+        y0 = self.top + r * (self.bh + self.gap)
+        return x0, y0, x0 + self.bw - self.gap, y0 + self.bh
 
-        if self.ball_x <= 0.5:
-            self.ball_x = 0.5
-            self.vx = abs(self.vx)
-        elif self.ball_x >= self.cols - 1.5:
-            self.ball_x = self.cols - 1.5
-            self.vx = -abs(self.vx)
-
-        if self.ball_y <= 0.5:
-            self.ball_y = 0.5
-            self.vy = abs(self.vy)
-        elif self.ball_y >= self.rows - 0.5:
-            self._reset()
+    def _plan_aim(self) -> None:
+        if self.vy <= 0:
+            self.aim = self.bx
             return
+        t = (self.pad_y - self.ball / 2 - self.by) / self.vy
+        x = self.bx + self.vx * t
+        lo, hi = self.ball / 2, self.width - self.ball / 2
+        span = hi - lo
+        x = (x - lo) % (2 * span)
+        land = lo + (2 * span - x if x > span else x)
+        cols = np.flatnonzero(self.bricks.any(axis=0))
+        target_x = (self.bx0 + (cols.mean() + 0.5) * self.bw) if cols.size else self.width / 2
+        lean = max(-1.0, min(1.0, (target_x - land) / (self.width / 2)))
+        wild = 0.7 if self.rng.random() < 0.06 else 0.15
+        jitter = float(self.rng.uniform(-wild, wild))
+        self.aim = land - (lean * 0.35 + jitter) * self.pad_w
 
-        bx, by = int(round(self.ball_x)), int(round(self.ball_y))
-        # Bricks
-        if 0 <= by < self.n_brick_rows + self._brick_y0 and self.vy < 0:
-            br = by - self._brick_y0
-            if 0 <= br < self.n_brick_rows and 0 <= bx < self.cols and self.bricks[br, bx]:
-                self.bricks[br, bx] = False
-                self.vy = abs(self.vy)
-                if not self.bricks.any():
-                    self._reset()
+    def _hit_bricks(self) -> None:
+        r = self.ball / 2
+        row0 = int((self.by - r - self.top) // (self.bh + self.gap))
+        row1 = int((self.by + r - self.top) // (self.bh + self.gap))
+        col0 = int((self.bx - r - self.bx0) // self.bw)
+        col1 = int((self.bx + r - self.bx0) // self.bw)
+        for row in range(max(0, row0), min(self.n_rows - 1, row1) + 1):
+            for col in range(max(0, col0), min(self.cols - 1, col1) + 1):
+                if not self.bricks[row, col]:
+                    continue
+                x0, y0, x1, y1 = self._brick_rect(row, col)
+                if self.bx + r < x0 or self.bx - r > x1 or self.by + r < y0 or self.by - r > y1:
+                    continue
+                self.bricks[row, col] = False
+                self._shatter(row, col)
+                pen_x = min(self.bx + r - x0, x1 - (self.bx - r))
+                pen_y = min(self.by + r - y0, y1 - (self.by - r))
+                if pen_x < pen_y:
+                    self.vx = -self.vx
+                else:
+                    self.vy = -self.vy
+                self.speed = min(self.base_speed * 1.5, self.speed * 1.01)
+                norm = math.hypot(self.vx, self.vy)
+                self.vx, self.vy = self.vx * self.speed / norm, self.vy * self.speed / norm
                 return
 
-        # Paddle
-        if self.vy > 0 and by >= self.paddle_y - 1:
-            if self.paddle_x <= bx < self.paddle_x + self.paddle_w:
-                self.ball_y = float(self.paddle_y - 1)
-                self.vy = -abs(self.vy)
-                hit = (bx - self.paddle_x) / max(1, self.paddle_w - 1) - 0.5
-                self.vx += hit * 0.5
+    def _shatter(self, row: int, col: int) -> None:
+        x0, y0, x1, y1 = self._brick_rect(row, col)
+        rgb = self.brick_rgbs[(row * len(self.brick_rgbs)) // self.n_rows]
+        n = 6 if self.u > 1 else 3
+        for _ in range(n):
+            self.shards.append(
+                [
+                    float(self.rng.uniform(x0, x1)),
+                    float(self.rng.uniform(y0, y1)),
+                    float(self.rng.normal(0, 20 * self.u)),
+                    float(self.rng.uniform(-10, 10) * self.u),
+                    1.0,
+                    rgb,
+                ]
+            )
 
-        spd = np.hypot(self.vx, self.vy)
-        cap = self._ball_spd * 1.4
-        if spd > cap:
-            self.vx *= cap / spd
-            self.vy *= cap / spd
+    def _update(self, dt: float) -> None:
+        gravity = 60.0 * self.u
+        for s in self.shards:
+            s[0] += s[2] * dt
+            s[1] += s[3] * dt
+            s[3] += gravity * dt
+            s[4] -= dt * 1.2
+        self.shards = [s for s in self.shards if s[4] > 0 and s[1] < self.height]
 
-    def _paint(self) -> np.ndarray:
-        grid = np.zeros((self.rows, self.cols, 3), dtype=np.float32)
-        for r in range(self.n_brick_rows):
-            y = self._brick_y0 + r
-            if y >= self.rows:
-                continue
-            mask = self.bricks[r]
-            if mask.any():
-                grid[y, mask] = self.brick_rgbs[r % len(self.brick_rgbs)]
-        py = self.paddle_y
-        px = self.paddle_x
-        grid[py, px:px + self.paddle_w] = self.paddle_rgb
-        bx, by = int(round(self.ball_x)), int(round(self.ball_y))
-        if 0 <= bx < self.cols and 0 <= by < self.rows:
-            grid[by, bx] = self.ball_rgb
-        return grid
+        if self.clear_t > 0:
+            self.clear_t -= dt
+            if self.clear_t <= 0:
+                self._new_wall()
+            return
+        step = self.pad_speed * dt
+        self.pad_x += max(-step, min(step, self.aim - self.pad_x))
+        self.pad_x = min(self.width - self.pad_w / 2, max(self.pad_w / 2, self.pad_x))
+        if self.pause > 0:
+            self.pause -= dt
+            self.bx = self.pad_x
+            return
+
+        r = self.ball / 2
+        steps = max(1, math.ceil(self.speed * dt / max(1.0, self.bh / 2)))
+        h = dt / steps
+        for _ in range(steps):
+            was_down = self.vy > 0
+            self.bx += self.vx * h
+            self.by += self.vy * h
+            if self.bx < r:
+                self.bx, self.vx = r, abs(self.vx)
+            elif self.bx > self.width - r:
+                self.bx, self.vx = self.width - r, -abs(self.vx)
+            if self.by < r:
+                self.by, self.vy = r, abs(self.vy)
+            self._hit_bricks()
+            if self.vy > 0 and not was_down:
+                self._plan_aim()
+            if self.vy > 0 and self.pad_y - r <= self.by <= self.pad_y + self.pad_h:
+                if abs(self.bx - self.pad_x) <= self.pad_w / 2 + r:
+                    hit = (self.bx - self.pad_x) / (self.pad_w / 2)
+                    ang = max(-1.0, min(1.0, hit)) * 1.05
+                    self.vx = self.speed * math.sin(ang)
+                    self.vy = -self.speed * math.cos(ang)
+                    self.by = self.pad_y - r
+            if self.by > self.height + self.ball:
+                self.lives -= 1
+                if self.lives <= 0:
+                    self._new_wall()
+                else:
+                    self._new_ball()
+                return
+        if not self.bricks.any():
+            self.clear_t = _CLEAR_S
+
+    @staticmethod
+    def _fill(out, x0, y0, x1, y1, rgb) -> None:
+        h, w = out.shape[:2]
+        x0, y0 = max(0, int(round(x0))), max(0, int(round(y0)))
+        x1, y1 = min(w, int(round(x1))), min(h, int(round(y1)))
+        if x1 > x0 and y1 > y0:
+            out[y0:y1, x0:x1] = rgb
 
     def frame(self, t: float, dt: float) -> np.ndarray:
-        self._accum += dt
-        while self._accum >= self.step_s:
-            self._accum -= self.step_s
-            self._step()
-        grid = self._paint()
+        self._update(min(dt, 0.1))
         out = np.zeros((self.height, self.width, 3), dtype=np.float32)
-        c = self.cell
-        big = np.repeat(np.repeat(grid, c, axis=0), c, axis=1)
-        h, w = big.shape[:2]
-        out[self.y_off:self.y_off + h, self.x_off:self.x_off + w] = big
+        flash = self.clear_t > 0 and int(self.clear_t * 6) % 2
+        per = max(1, self.n_rows // len(self.brick_rgbs))
+        for row in range(self.n_rows):
+            rgb = self.brick_rgbs[min(len(self.brick_rgbs) - 1, row // per)]
+            for col in np.flatnonzero(self.bricks[row]):
+                x0, y0, x1, y1 = self._brick_rect(row, int(col))
+                self._fill(out, x0, y0, x1, y1, rgb)
+                if self.u > 1:
+                    self._fill(out, x0, y0, x1, y0 + 1, np.minimum(255, rgb * 1.35))
+        for x, y, _, _, life, rgb in self.shards:
+            self._fill(out, x, y, x + max(1, self.u // 2 + 1), y + max(1, self.u // 2 + 1), rgb * life)
+        if flash:
+            out *= 0.3
+        half = self.pad_w / 2
+        self._fill(out, self.pad_x - half, self.pad_y, self.pad_x + half, self.pad_y + self.pad_h, self.paddle_rgb)
+        for k in range(self.lives - 1):
+            x = self.u * 2 + k * (self.ball + self.u * 2)
+            self._fill(out, x, self.u, x + self.ball, self.u + self.ball, self.paddle_rgb * 0.5)
+        if self.clear_t <= 0:
+            r = self.ball / 2
+            self._fill(out, self.bx - r, self.by - r, self.bx + r, self.by + r, self.ball_rgb)
         return np.clip(out, 0, 255).astype(np.uint8)
 
 
 class BreakoutMode(EffectMode):
     mode_id = "breakout"
     field_class = BreakoutField
-    tick_interval = 0.03
+    tick_interval = 0.02

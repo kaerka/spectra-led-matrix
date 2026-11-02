@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 
 import numpy as np
+from PIL import Image, ImageDraw
 
 from display.modes.effect_base import EffectField, EffectMode
 
@@ -110,26 +111,72 @@ class SnakeField(EffectField):
         else:
             self.body.popleft()
 
+    def _center(self, x: float, y: float) -> tuple[float, float]:
+        c = self.cell
+        return self.x_off + (x + 0.5) * c - 0.5, self.y_off + (y + 0.5) * c - 0.5
+
     def frame(self, t: float, dt: float) -> np.ndarray:
         self._accum += dt
+        grew = False
         while self._accum >= self.step_s:
             self._accum -= self.step_s
+            before = len(self.body)
+            self._prev_tail = self.body[0]
             self._step()
+            grew = len(self.body) > before
             if not self.alive or self.won:
                 self._accum = 0
                 break
-        out = np.zeros((self.height, self.width, 3), dtype=np.float32)
+        img = Image.new("RGB", (self.width, self.height))
+        draw = ImageDraw.Draw(img)
         c = self.cell
-        for i, (x, y) in enumerate(self.body):
-            # Head slightly brighter.
-            mul = 1.0 if i == len(self.body) - 1 else 0.75
-            y0, x0 = self.y_off + y * c, self.x_off + x * c
-            out[y0:y0 + c - 1, x0:x0 + c - 1] = self.snake_rgb * mul
+        if c < 4:
+            for i, (x, y) in enumerate(self.body):
+                mul = 1.0 if i == len(self.body) - 1 else 0.55 + 0.35 * i / len(self.body)
+                x0, y0 = self.x_off + x * c, self.y_off + y * c
+                draw.rectangle([x0, y0, x0 + c - 2, y0 + c - 2], fill=tuple(int(v) for v in self.snake_rgb * mul))
+            if self.food:
+                fx, fy = self.food
+                x0, y0 = self.x_off + fx * c, self.y_off + fy * c
+                draw.rectangle([x0, y0, x0 + c - 2, y0 + c - 2], fill=tuple(int(v) for v in self.food_rgb))
+            return np.asarray(img)
+
+        frac = min(1.0, self._accum / self.step_s) if self.alive else 0.0
+        pts = [self._center(x, y) for x, y in self.body]
+        if len(pts) >= 2 and self.alive and not self.won:
+            hx, hy = pts[-1]
+            dx, dy = self.dir
+            pts[-1] = (hx, hy)
+            pts.append((hx + dx * c * frac, hy + dy * c * frac))
+            tail_prev = getattr(self, "_prev_tail", None)
+            if not grew and tail_prev is not None:
+                (tx, ty), (nx, ny) = pts[0], pts[1]
+                pts[0] = (tx + (nx - tx) * frac, ty + (ny - ty) * frac)
+        width = max(2, int(round(c * 0.72)))
+        n = len(pts) - 1
+        for i in range(n):
+            mul = 0.45 + 0.55 * (i + 1) / max(1, n)
+            color = tuple(int(v) for v in self.snake_rgb * mul)
+            (x0, y0), (x1, y1) = pts[i], pts[i + 1]
+            draw.line([(x0, y0), (x1, y1)], fill=color, width=width)
+            r = width / 2 - 0.5
+            draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=color)
+        hx, hy = pts[-1]
+        r = width / 2 + 0.5
+        head = tuple(int(v) for v in self.snake_rgb)
+        draw.ellipse([hx - r, hy - r, hx + r, hy + r], fill=head)
+        if c >= 8:
+            dx, dy = self.dir
+            px, py = -dy, dx
+            for side in (-1, 1):
+                ex, ey = hx + dx * r * 0.3 + px * side * r * 0.45, hy + dy * r * 0.3 + py * side * r * 0.45
+                er = max(1.0, r * 0.22)
+                draw.ellipse([ex - er, ey - er, ex + er, ey + er], fill=(10, 10, 10))
         if self.food:
-            fx, fy = self.food
-            y0, x0 = self.y_off + fy * c, self.x_off + fx * c
-            out[y0:y0 + c - 1, x0:x0 + c - 1] = self.food_rgb
-        return np.clip(out, 0, 255).astype(np.uint8)
+            fx, fy = self._center(*self.food)
+            fr = c * (0.32 + 0.05 * np.sin(t * 6.0))
+            draw.ellipse([fx - fr, fy - fr, fx + fr, fy + fr], fill=tuple(int(v) for v in self.food_rgb))
+        return np.asarray(img)
 
 
 class SnakeMode(EffectMode):

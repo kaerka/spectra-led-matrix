@@ -189,6 +189,27 @@ def test_gtw_launches_and_ends():
     assert frame.shape == (64, 64, 3)
 
 
+@pytest.mark.parametrize("size", [(64, 64), (192, 192)])
+def test_pacman_maze_has_no_dead_ends(size):
+    f = PacmanField(*size, resolve_effect("pacman", None), seed=4)
+    open_ = f.open
+    rows, cols = open_.shape
+    for y, x in zip(*np.nonzero(open_)):
+        exits = sum(
+            1
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))
+            if 0 <= x + dx < cols and 0 <= y + dy < rows and open_[y + dy, x + dx]
+        )
+        assert exits >= 2, (x, y)
+    assert (open_ == open_[:, ::-1]).all()
+
+
+def test_boids_counts_stay_small_on_walls():
+    for style in (0, 1):
+        f = BoidsField(192, 192, resolve_effect("boids", {"style": style, "count": 2}), seed=1)
+        assert f.n <= 60
+
+
 def test_tron_runs_and_crashes():
     f = TronField(64, 64, resolve_effect("tron", {"bikes": 3, "speed": 3}), seed=2)
     assert f.n_bikes == 5

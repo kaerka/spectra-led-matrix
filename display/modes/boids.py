@@ -1,188 +1,268 @@
-"""Boids flock or fish-tank schooling with optional bubbles."""
+"""Boids flock under a dusk sky, or a fish tank with seaweed, light rays, and bubbles."""
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
+from PIL import Image, ImageDraw
 
 from display.modes.effect_base import EffectField, EffectMode
 
-_COUNT_BASE = (8, 16, 28)
-_MAX_SPEED = (0.55, 0.85, 1.15, 1.65)
-_STEPS_PER_S = (25.0, 40.0, 60.0, 90.0)
+_FISH_COUNT = (4, 7, 11)  # at 64 px; scaled by sqrt of canvas size
+_BIRD_COUNT = (8, 16, 28)
+_SPEED = (0.55, 0.85, 1.2, 1.7)
+_SIM_DT = 1.0 / 30.0
 
 
-def _count_for_canvas(count_idx: int, w: int, h: int) -> int:
-    base = _COUNT_BASE[count_idx]
-    scale = (w * h) / (64.0 * 64.0)
-    return max(4, int(round(base * scale)))
+def _scaled_count(base: int, short: int) -> int:
+    return max(3, int(round(base * math.sqrt(short / 64.0))))
 
 
 class BoidsField(EffectField):
     def __init__(self, width, height, settings, seed=None) -> None:
         super().__init__(width, height, settings, seed)
         values = settings.values
-        self.fish_tank = values["style"] == 1
-        self.n = _count_for_canvas(values["count"], width, height)
-        self.max_speed = _MAX_SPEED[values["speed"]] * (min(width, height) / 64.0)
-        self.step_s = 1.0 / _STEPS_PER_S[values["speed"]]
-        self.creature_rgb = np.asarray(settings.stops[0], dtype=np.float32) * settings.gain
-        self.bg_rgb = np.asarray(settings.stops[1 % len(settings.stops)], dtype=np.float32) * settings.gain
-        self.accent_rgb = np.asarray(settings.stops[2 % len(settings.stops)], dtype=np.float32) * settings.gain
         rng = self.rng
-        self.pos = rng.uniform(0.15, 0.85, (self.n, 2)).astype(np.float32)
-        self.pos[:, 0] *= width
-        self.pos[:, 1] *= height
-        ang = rng.uniform(0, 2 * np.pi, self.n)
-        spd = rng.uniform(0.3, 0.7, self.n) * self.max_speed
-        self.vel = np.stack([np.cos(ang), np.sin(ang)], axis=1).astype(np.float32) * spd[:, None]
-        if self.fish_tank:
-            self.vel[:, 0] *= 1.4
-            self.vel[:, 1] *= 0.55
-        self._accum = 0.0
-        self._bubbles: list[tuple[float, float, float]] = []
-        self._bubble_timer = 0.0
+        gain = settings.gain
+        stops = settings.stops
+        self.fish_tank = values["style"] == 1
+        short = min(width, height)
+        self.scale = short / 64.0
+        self.creature = np.asarray(stops[0], dtype=np.float32) * gain
+        self.water = np.asarray(stops[1 % len(stops)], dtype=np.float32) * gain
+        self.accent = np.asarray(stops[2 % len(stops)], dtype=np.float32) * gain
 
-    def _wrap(self) -> None:
-        w, h = self.width, self.height
-        self.pos[:, 0] = np.mod(self.pos[:, 0], w)
-        self.pos[:, 1] = np.mod(self.pos[:, 1], h)
+        counts = _FISH_COUNT if self.fish_tank else _BIRD_COUNT
+        self.n = _scaled_count(counts[values["count"]], short)
+        # Pixels per second.
+        self.speed = _SPEED[values["speed"]] * (14.0 if self.fish_tank else 22.0) * self.scale
 
-    def _bounds_bounce(self) -> None:
-        margin = 2.0
-        for i in range(self.n):
-            for axis, lim in ((0, self.width), (1, self.height)):
-                if self.pos[i, axis] < margin:
-                    self.pos[i, axis] = margin
-                    self.vel[i, axis] *= -1
-                elif self.pos[i, axis] > lim - margin:
-                    self.pos[i, axis] = lim - margin
-                    self.vel[i, axis] *= -1
-
-    def _step_boids(self) -> None:
         n = self.n
-        if n < 2:
-            return
-        pos = self.pos
-        vel = self.vel
-        # Pairwise distances (n is small).
-        diff = pos[:, None, :] - pos[None, :, :]
-        dist2 = (diff ** 2).sum(axis=2)
-        np.fill_diagonal(dist2, np.inf)
-        dist = np.sqrt(dist2)
-        neigh = dist < (self.width * 0.18)
-        sep = np.zeros((n, 2), dtype=np.float32)
-        ali = np.zeros((n, 2), dtype=np.float32)
-        coh = np.zeros((n, 2), dtype=np.float32)
-        counts = np.zeros(n, dtype=np.float32)
-        for i in range(n):
-            mask = neigh[i]
-            if not mask.any():
-                continue
-            d = diff[i, mask]
-            dist_i = dist[i, mask]
-            sep[i] = (d / (dist_i[:, None] ** 2 + 1e-3)).sum(axis=0)
-            ali[i] = vel[mask].mean(axis=0)
-            coh[i] = pos[mask].mean(axis=0) - pos[i]
-            counts[i] = mask.sum()
-        w_sep, w_ali, w_coh = 1.2, 0.8, 0.5
+        self.pos = np.column_stack(
+            (rng.uniform(0.15, 0.85, n) * width, rng.uniform(0.15, 0.75, n) * height)
+        ).astype(np.float32)
+        ang = rng.uniform(0, 2 * np.pi, n)
         if self.fish_tank:
-            w_sep, w_ali, w_coh = 1.0, 1.0, 0.35
-        acc = np.zeros((n, 2), dtype=np.float32)
-        has = counts > 0
-        acc[has] += w_sep * sep[has]
-        acc[has] += w_ali * (ali[has] - vel[has])
-        acc[has] += w_coh * coh[has] * 0.02
-        if self.fish_tank:
-            acc[:, 0] += 0.08 * np.sign(vel[:, 0] + 0.01)
-            acc[:, 1] += self.rng.normal(0, 0.02, n)
-        vel += acc * 0.08
-        spd = np.linalg.norm(vel, axis=1, keepdims=True)
-        spd = np.maximum(spd, 1e-4)
-        cap = self.max_speed
-        vel *= np.where(spd > cap, cap / spd, 1.0)
-        pos += vel * 0.35
-        if self.fish_tank:
-            self._wrap()
-        else:
-            self._bounds_bounce()
+            ang = np.where(rng.random(n) < 0.5, 0.0, np.pi) + rng.uniform(-0.3, 0.3, n)
+        self.vel = (np.column_stack((np.cos(ang), np.sin(ang))) * self.speed * 0.7).astype(np.float32)
+        self.size = rng.uniform(0.75, 1.25, n).astype(np.float32)
+        self.facing = np.sign(self.vel[:, 0]) + (self.vel[:, 0] == 0)
+        self.tint = rng.uniform(0.75, 1.15, n).astype(np.float32)
+        self.is_accent = rng.random(n) < 0.3
+        self.phase = rng.uniform(0, 2 * np.pi, n).astype(np.float32)
+        self._accum = 0.0
 
-    def _spawn_bubble(self) -> None:
-        x = float(self.rng.uniform(self.width * 0.1, self.width * 0.9))
-        y = float(self.height - 2)
-        vy = float(self.rng.uniform(12, 22))
-        self._bubbles.append((x, y, vy))
+        self.floor_y = height - max(2, int(round(height * 0.07)))
+        self._bg = self._build_background()
+        self._ys = np.arange(height, dtype=np.float32)[:, None]
+        self._xs = np.arange(width, dtype=np.float32)[None, :]
+        self._depth = np.clip(1.0 - self._ys / max(1, self.floor_y), 0.0, 1.0) ** 1.5
+
+        self._weeds = []
+        self._bubbles: list[list[float]] = []
+        self._bubble_t = 0.0
+        if self.fish_tank:
+            for _ in range(max(3, int(round(4 * math.sqrt(self.scale))))):
+                self._weeds.append(
+                    (
+                        float(rng.uniform(0.04, 0.96) * width),
+                        float(rng.uniform(0.22, 0.45) * height),
+                        float(rng.uniform(0, 2 * np.pi)),
+                        float(rng.uniform(0.6, 1.0)),
+                    )
+                )
+            self._bubblers = [float(rng.uniform(0.1, 0.9) * width) for _ in range(2)]
+
+    # ---------------------------------------------------------------- scene
+
+    def _build_background(self) -> np.ndarray:
+        h, w = self.height, self.width
+        y = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None, None]
+        if self.fish_tank:
+            top, bottom = self.water * 0.42, self.water * 0.10
+        else:
+            top, bottom = self.water * 0.45, self.water * 0.06
+        bg = np.broadcast_to(top * (1 - y) + bottom * y, (h, w, 3)).astype(np.float32)
+        if self.fish_tank:
+            bg = bg.copy()
+            sand = np.asarray((120, 95, 55), dtype=np.float32) * self.settings.gain
+            grain = self.rng.uniform(0.55, 1.0, (h - self.floor_y, w, 1)).astype(np.float32)
+            bg[self.floor_y :] = sand * grain
+        return bg
+
+    def _light_rays(self, t: float) -> np.ndarray:
+        # sin(a*x + b*y - c*t) split into separable sin/cos terms.
+        u = 0.09 / self.scale * self._xs - 0.35 * t
+        v = 0.035 / self.scale * self._ys
+        rays = np.sin(u) * np.cos(v) + np.cos(u) * np.sin(v)
+        u2 = 0.047 / self.scale * self._xs + 0.22 * t
+        rays2 = np.sin(u2) * np.cos(v * 0.6) + np.cos(u2) * np.sin(v * 0.6)
+        light = np.maximum(0.0, rays + rays2 - 0.6) * self._depth
+        return 1.0 + 0.55 * light
+
+    # ----------------------------------------------------------- simulation
+
+    def _step(self) -> None:
+        n = self.n
+        pos, vel = self.pos, self.vel
+        w, h = self.width, self.height
+        radius = (0.30 if self.fish_tank else 0.22) * min(w, h)
+        sep_r = (0.10 if self.fish_tank else 0.09) * min(w, h)
+
+        diff = pos[:, None, :] - pos[None, :, :]
+        d2 = (diff * diff).sum(axis=2)
+        np.fill_diagonal(d2, np.inf)
+        neigh = (d2 < radius * radius).astype(np.float32)
+        cnt = neigh.sum(axis=1, keepdims=True)
+        has = cnt > 0
+        cnt = np.maximum(cnt, 1.0)
+        close = (d2 < sep_r * sep_r).astype(np.float32)
+        sep = (diff * (close / np.maximum(d2, 1.0))[..., None]).sum(axis=1) * sep_r * self.speed
+        ali = neigh @ vel / cnt - vel
+        coh = neigh @ pos / cnt - pos
+
+        if self.fish_tank:
+            k_sep, k_ali, k_coh = 0.8, 0.25, 0.10
+        else:
+            k_sep, k_ali, k_coh = 0.5, 2.0, 0.3
+        acc = k_sep * sep + has * (k_ali * ali + k_coh * coh)
+
+        margin = 0.12 * min(w, h)
+        top = margin if not self.fish_tank else margin * 0.6
+        bottom = (self.floor_y - margin * 0.8) if self.fish_tank else (h - margin)
+        push = self.speed * 5.0
+        acc[:, 0] += np.where(pos[:, 0] < margin, push, 0.0) - np.where(pos[:, 0] > w - margin, push, 0.0)
+        acc[:, 1] += np.where(pos[:, 1] < top, push, 0.0) - np.where(pos[:, 1] > bottom, push, 0.0)
+
+        if self.fish_tank:
+            acc[:, 1] -= vel[:, 1] * 1.2
+            acc[:, 1] += self.rng.normal(0, self.speed * 0.6, n)
+            acc[:, 0] += self.facing * self.speed * 0.4
+        else:
+            acc += self.rng.normal(0, self.speed * 0.3, (n, 2))
+
+        vel += (acc * _SIM_DT).astype(np.float32)
+        spd = np.linalg.norm(vel, axis=1, keepdims=True)
+        lo, hi = self.speed * 0.45, self.speed
+        vel *= np.clip(spd, lo, hi) / np.maximum(spd, 1e-4)
+        pos += vel * _SIM_DT
+        pos[:, 0] = np.clip(pos[:, 0], 1, w - 2)
+        pos[:, 1] = np.clip(pos[:, 1], 1, (self.floor_y if self.fish_tank else h) - 2)
+
+        flip = (np.sign(vel[:, 0]) != self.facing) & (np.abs(vel[:, 0]) > self.speed * 0.25)
+        self.facing = np.where(flip, -self.facing, self.facing)
 
     def _step_bubbles(self, dt: float) -> None:
-        if not self.fish_tank:
-            self._bubbles.clear()
-            return
-        self._bubble_timer += dt
-        if self._bubble_timer > 0.35 and self.rng.random() < 0.4:
-            self._bubble_timer = 0.0
-            self._spawn_bubble()
+        self._bubble_t += dt
+        rate = 0.25 / math.sqrt(self.scale)
+        while self._bubble_t > rate:
+            self._bubble_t -= rate
+            if self.rng.random() < 0.85:
+                x = self._bubblers[int(self.rng.integers(len(self._bubblers)))]
+                y = self.floor_y
+            else:
+                i = int(self.rng.integers(self.n))
+                x, y = float(self.pos[i, 0]), float(self.pos[i, 1])
+            size = float(self.rng.uniform(0.6, 1.6))
+            self._bubbles.append([x + float(self.rng.normal(0, self.scale)), float(y), size, float(self.rng.uniform(0, 6.3))])
+        rise = 16.0 * self.scale
         alive = []
-        for x, y, vy in self._bubbles:
-            y -= vy * dt
-            x += np.sin(y * 0.15) * 8 * dt
-            if y > 0:
-                alive.append((x, y, vy))
+        for b in self._bubbles:
+            b[1] -= rise * (0.7 + 0.3 * b[2]) * dt
+            b[0] += math.sin(b[1] * 0.12 / self.scale + b[3]) * 4.0 * self.scale * dt
+            if b[1] > 0:
+                alive.append(b)
         self._bubbles = alive
 
-    def _draw_triangle(self, out: np.ndarray, x: float, y: float, angle: float, size: float, rgb) -> None:
-        c, s = np.cos(angle), np.sin(angle)
-        pts = np.array([[size, 0], [-size * 0.6, size * 0.5], [-size * 0.6, -size * 0.5]], dtype=np.float32)
-        rot = np.array([[c, -s], [s, c]], dtype=np.float32)
-        pts = pts @ rot.T + np.array([x, y], dtype=np.float32)
-        p0, p1, p2 = pts
+    # -------------------------------------------------------------- drawing
 
-        def edge(ax, ay, bx, by, px, py) -> np.ndarray:
-            return (px - ax) * (by - ay) - (py - ay) * (bx - ax)
+    def _draw_fish(self, draw: ImageDraw.ImageDraw, i: int, t: float) -> None:
+        x, y = float(self.pos[i, 0]), float(self.pos[i, 1])
+        length = 9.0 * self.scale * float(self.size[i])
+        f = float(self.facing[i])
+        base = self.accent if self.is_accent[i] else self.creature
+        body = tuple(int(c) for c in np.clip(base * self.tint[i], 0, 255))
+        fin = tuple(int(c * 0.6) for c in body)
+        wag = math.sin(t * 9.0 + float(self.phase[i])) * 0.12 * length
+        hh = 0.24 * length
+        nose, rear = x + f * 0.45 * length, x - f * 0.30 * length
+        draw.polygon(
+            [
+                (rear, y),
+                (x - f * 0.65 * length, y - 0.30 * length + wag),
+                (x - f * 0.58 * length, y + wag * 0.3),
+                (x - f * 0.65 * length, y + 0.30 * length + wag),
+            ],
+            fill=fin,
+        )
+        draw.ellipse([min(nose, rear - f * 0.1 * length), y - hh, max(nose, rear - f * 0.1 * length), y + hh], fill=body)
+        draw.polygon([(x, y - hh * 0.8), (x - f * 0.2 * length, y - hh * 1.5), (x - f * 0.22 * length, y - hh * 0.6)], fill=fin)
+        ex, ey = x + f * 0.25 * length, y - hh * 0.25
+        if self.scale >= 2:
+            r = max(1.0, 0.06 * length)
+            draw.ellipse([ex - r, ey - r, ex + r, ey + r], fill=(10, 10, 20))
+        else:
+            draw.point((ex, ey), fill=(10, 10, 20))
 
-        minx = max(0, int(np.floor(pts[:, 0].min() - 1)))
-        maxx = min(self.width - 1, int(np.ceil(pts[:, 0].max() + 1)))
-        miny = max(0, int(np.floor(pts[:, 1].min() - 1)))
-        maxy = min(self.height - 1, int(np.ceil(pts[:, 1].max() + 1)))
-        for py in range(miny, maxy + 1):
-            for px in range(minx, maxx + 1):
-                w0 = edge(p1[0], p1[1], p2[0], p2[1], px, py)
-                w1 = edge(p2[0], p2[1], p0[0], p0[1], px, py)
-                w2 = edge(p0[0], p0[1], p1[0], p1[1], px, py)
-                if (w0 >= 0 and w1 >= 0 and w2 >= 0) or (w0 <= 0 and w1 <= 0 and w2 <= 0):
-                    out[py, px] = rgb
+    def _draw_bird(self, draw: ImageDraw.ImageDraw, i: int, t: float) -> None:
+        x, y = float(self.pos[i, 0]), float(self.pos[i, 1])
+        vx, vy = float(self.vel[i, 0]), float(self.vel[i, 1])
+        norm = math.hypot(vx, vy) or 1.0
+        dx, dy = vx / norm, vy / norm
+        px, py = -dy, dx
+        s = 2.2 * self.scale * float(self.size[i])
+        flap = 0.55 + 0.45 * math.sin(t * 10.0 + float(self.phase[i]))
+        color = tuple(int(c) for c in np.clip(self.creature * self.tint[i], 0, 255))
+        tip = (x + dx * s, y + dy * s)
+        back = (x - dx * s * 0.4, y - dy * s * 0.4)
+        wing_l = (x - dx * s + px * s * flap, y - dy * s + py * s * flap)
+        wing_r = (x - dx * s - px * s * flap, y - dy * s - py * s * flap)
+        draw.polygon([tip, wing_l, back, wing_r], fill=color)
+
+    def _draw_weeds(self, draw: ImageDraw.ImageDraw, t: float) -> None:
+        width = max(1, int(round(self.scale * 0.8)))
+        green = np.asarray((40, 150, 70), dtype=np.float32) * self.settings.gain
+        for x0, height, phase, shade in self._weeds:
+            segs = 8
+            pts = []
+            for k in range(segs + 1):
+                f = k / segs
+                sway = math.sin(t * 0.9 + phase + f * 2.5) * 3.0 * self.scale * f
+                pts.append((x0 + sway, self.floor_y - f * height))
+            color = tuple(int(c) for c in green * shade)
+            draw.line(pts, fill=color, width=width)
 
     def frame(self, t: float, dt: float) -> np.ndarray:
-        self._accum += dt
-        while self._accum >= self.step_s:
-            self._accum -= self.step_s
-            self._step_boids()
-        self._step_bubbles(dt)
-        out = np.broadcast_to(self.bg_rgb, (self.height, self.width, 3)).copy()
+        self._accum += min(dt, 0.1)
+        while self._accum >= _SIM_DT:
+            self._accum -= _SIM_DT
+            self._step()
+
         if self.fish_tank:
-            # Subtle shimmer on water.
-            shimmer = 0.92 + 0.08 * np.sin(
-                np.linspace(0, 4 * np.pi, self.width, dtype=np.float32)[None, :]
-                + t * 1.2
-            )
-            out *= shimmer[..., None]
-        sz = max(1.5, min(self.width, self.height) / 28.0)
-        r = max(1, int(round(sz * 0.55)))
-        for i in range(self.n):
-            x, y = int(round(self.pos[i, 0])), int(round(self.pos[i, 1]))
-            if self.fish_tank or self.n > 48:
-                y0, y1 = max(0, y - r), min(self.height, y + r + 1)
-                x0, x1 = max(0, x - r), min(self.width, x + r + 1)
-                out[y0:y1, x0:x1] = self.creature_rgb
-            else:
-                ang = float(np.arctan2(self.vel[i, 1], self.vel[i, 0]))
-                self._draw_triangle(out, float(self.pos[i, 0]), float(self.pos[i, 1]), ang, sz, self.creature_rgb)
-        for x, y, _vy in self._bubbles:
-            bx, by = int(x), int(y)
-            if 0 <= bx < self.width and 0 <= by < self.height:
-                r = 1
-                y0, y1 = max(0, by - r), min(self.height, by + r + 1)
-                x0, x1 = max(0, bx - r), min(self.width, bx + r + 1)
-                out[y0:y1, x0:x1] = self.accent_rgb
-        return np.clip(out, 0, 255).astype(np.uint8)
+            self._step_bubbles(dt)
+            base = self._bg * self._light_rays(t)[..., None]
+        else:
+            base = self._bg
+        img = Image.fromarray(np.clip(base, 0, 255).astype(np.uint8))
+        draw = ImageDraw.Draw(img)
+
+        if self.fish_tank:
+            self._draw_weeds(draw, t)
+            order = np.argsort(self.size)
+            for i in order:
+                self._draw_fish(draw, int(i), t)
+            bubble = tuple(int(c) for c in np.clip(self.water * 0.5 + 120 * self.settings.gain, 0, 255))
+            for x, y, size, _ in self._bubbles:
+                r = size * 0.9 * self.scale ** 0.6
+                if r < 1.2:
+                    draw.point((x, y), fill=bubble)
+                else:
+                    draw.ellipse([x - r, y - r, x + r, y + r], outline=bubble)
+        else:
+            for i in range(self.n):
+                self._draw_bird(draw, i, t)
+        return np.asarray(img)
 
 
 class BoidsMode(EffectMode):
