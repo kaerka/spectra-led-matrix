@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-import numpy as np
-
 Color = Tuple[int, int, int]
 FireProfile = Literal["flame", "lava"]
 
@@ -143,8 +141,10 @@ def fire_palette(stops: Tuple[Color, ...]) -> List[Color]:
     return [DEFAULT_BLACK, ember, core, mid, tip]
 
 
-def build_fire_palette_lut(palette: List[Color], *, profile: FireProfile = "flame") -> np.ndarray:
+def build_fire_palette_lut(palette: List[Color], *, profile: FireProfile = "flame"):
     """256×3 RGB LUT with smooth interpolation across palette stops."""
+    import numpy as np
+
     stops = np.array(palette, dtype=np.float32)
     bounds = np.array(_profile(profile)["palette_bounds"], dtype=np.float32)
     lut = np.zeros((256, 3), dtype=np.uint8)
