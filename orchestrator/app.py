@@ -97,17 +97,6 @@ class SelfTestRunRequest(BaseModel):
     dwell_seconds: float = Field(default=6.0, ge=3.0, le=15.0)
 
 
-class FlameConfigRequest(BaseModel):
-    preset: Optional[str] = None
-    intensity: Optional[int] = None
-    core: Optional[List[int]] = None
-    mid: Optional[List[int]] = None
-    tip: Optional[List[int]] = None
-    ember: Optional[List[int]] = None
-    color_rotate_speed: Optional[int] = None
-    intro: Optional[int] = None
-
-
 class StarfieldConfigRequest(BaseModel):
     preset: Optional[str] = None
     color_mode: Optional[str] = None
@@ -216,22 +205,6 @@ def api_host_mode(host_id: str, mode_id: str) -> dict[str, Any]:
     return _host_payload(result)
 
 
-@app.put("/api/sync/mode/{mode_id}/config")
-def api_sync_fire_config(mode_id: str, body: FlameConfigRequest) -> dict[str, Any]:
-    if mode_id not in ("flame", "lava"):
-        raise HTTPException(status_code=404, detail="Unknown fire mode")
-    payload = body.model_dump(exclude_none=True)
-    if not payload:
-        raise HTTPException(status_code=400, detail="Provide preset or color")
-    results = _map_hosts(lambda c: c.set_fire_config(mode_id, payload))
-    return {
-        "mode": mode_id,
-        "config": payload,
-        "results": [_host_payload(r) for r in results],
-        "all_ok": all(r.online for r in results),
-    }
-
-
 @app.get("/api/hosts/{host_id}/mode/starfield/config")
 def api_host_starfield_config_get(host_id: str) -> dict[str, Any]:
     result = _client_for(host_id).get_starfield_config()
@@ -293,26 +266,6 @@ def api_host_rotation_get(host_id: str) -> dict[str, Any]:
 @app.put("/api/hosts/{host_id}/rotation")
 def api_host_rotation_set(host_id: str, body: dict = Body(...)) -> dict[str, Any]:
     return _effect_result(_client_for(host_id).set_rotation(body))
-
-
-@app.put("/api/hosts/{host_id}/mode/{mode_id}/config")
-def api_host_fire_config(host_id: str, mode_id: str, body: FlameConfigRequest) -> dict[str, Any]:
-    if mode_id not in ("flame", "lava"):
-        raise HTTPException(status_code=404, detail="Unknown fire mode")
-    payload = body.model_dump(exclude_none=True)
-    if not payload:
-        raise HTTPException(status_code=400, detail="Provide preset and/or color stops")
-    return _effect_result(_client_for(host_id).set_fire_config(mode_id, payload))
-
-
-@app.get("/api/hosts/{host_id}/mode/{mode_id}/config")
-def api_host_fire_config_get(host_id: str, mode_id: str) -> dict[str, Any]:
-    if mode_id not in ("flame", "lava"):
-        raise HTTPException(status_code=404, detail="Unknown fire mode")
-    result = _client_for(host_id).get_fire_config(mode_id)
-    if not result.online:
-        raise HTTPException(status_code=502, detail=result.error or "host unreachable")
-    return result.data if isinstance(result.data, dict) else {}
 
 
 @app.put("/api/sync/media")
@@ -566,14 +519,6 @@ def dashboard() -> str:
         <span data-field="media"></span></p>
       <div class="rotation-box" data-rotation-panel="{host.id}" style="margin-bottom:0.75rem"><em>Loading…</em></div>
       <div class="mode-grid host-modes" data-host="{host.id}"></div>
-      <div class="wall-flame-panel" data-fire-panel="{host.id}" style="display:none;margin-top:0.75rem">
-        <p class="hint" data-fire-title="{host.id}" style="margin:0 0 0.35rem">Fire colors ({host.label})</p>
-        <div class="flame-swatches" data-fire-swatches="{host.id}"></div>
-        <div class="flame-intensity" data-fire-intensity="{host.id}"></div>
-        <div class="flame-intensity" data-fire-rotate="{host.id}" style="margin-top:0.35rem"></div>
-        <div class="flame-intensity" data-fire-intro="{host.id}" style="margin-top:0.35rem"></div>
-        <div class="flame-stops" data-fire-stops="{host.id}"></div>
-      </div>
       <div class="wall-flame-panel" data-star-panel="{host.id}" style="display:none;margin-top:0.75rem">
         <p class="hint" style="margin:0 0 0.35rem">Starfield ({host.label})</p>
         <div class="flame-intensity" data-star-intensity="{host.id}"></div>
@@ -1041,180 +986,9 @@ def dashboard() -> str:
     }}
 
     let refreshSeq = 0;
-    const wallFireBusy = {{}};
-    const wallFireMode = {{}};
-    const FIRE_INTENSITY_LABELS = ["Night (dim)", "1 panel", "2 panels", "Full (3)"];
     const COLOR_ROTATE_LABELS = ["Off", "Slow", "Medium", "Fast"];
-    const FIRE_SWATCH_RGB = {{
-      orange: "#ff5a00", red: "#ff2800", yellow: "#ffc800",
-      blue: "#2878ff", green: "#28ff50", purple: "#b428ff",
-      cyan: "#00dcff", magenta: "#ff00b4", white: "#ffffff",
-    }};
-
     function rgbToHex([r, g, b]) {{
       return "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
-    }}
-
-    function updateWallFirePanels(hosts) {{
-      for (const hostId of HOST_IDS) {{
-        const panel = document.querySelector(`[data-fire-panel="${{hostId}}"]`);
-        if (!panel) continue;
-        const host = (hosts || []).find(h => h.id === hostId);
-        const mode = host?.state?.active_mode;
-        const isFire = mode === "flame" || mode === "lava";
-        panel.style.display = isFire ? "" : "none";
-        if (isFire) wallFireMode[hostId] = mode;
-        const title = document.querySelector(`[data-fire-title="${{hostId}}"]`);
-        if (title && isFire) {{
-          title.textContent = (mode === "lava" ? "Lava" : "Fire & smoke") + " colors";
-        }}
-      }}
-    }}
-
-    async function loadWallFireConfig(hostId, modeId) {{
-      const mode = modeId || wallFireMode[hostId] || "flame";
-      const res = await fetch(`/api/hosts/${{hostId}}/mode/${{mode}}/config`);
-      if (!res.ok) return null;
-      return res.json();
-    }}
-
-    async function saveWallFireConfig(hostId, patch) {{
-      const mode = wallFireMode[hostId] || "flame";
-      const res = await fetch(`/api/hosts/${{hostId}}/mode/${{mode}}/config`, {{
-        method: "PUT",
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify(patch),
-      }});
-      if (!res.ok) throw new Error((await res.json().catch(() => ({{}}))).detail || "failed");
-      return res.json();
-    }}
-
-    function renderWallFire(hostId, data) {{
-      const sw = document.querySelector(`[data-fire-swatches="${{hostId}}"]`);
-      const intEl = document.querySelector(`[data-fire-intensity="${{hostId}}"]`);
-      const rotEl = document.querySelector(`[data-fire-rotate="${{hostId}}"]`);
-      const stops = document.querySelector(`[data-fire-stops="${{hostId}}"]`);
-      if (!sw || !data) return;
-      const activePreset = data.preset || null;
-      const modeLabel = wallFireMode[hostId] || data.profile || "flame";
-      sw.innerHTML = (data.presets || Object.keys(FIRE_SWATCH_RGB)).map(name => {{
-        const rgb = FIRE_SWATCH_RGB[name] || "#ff5a00";
-        const active = name === activePreset ? " active" : "";
-        return `<button type="button" class="flame-swatch${{active}}" data-preset="${{name}}"
-                style="background:${{rgb}}" title="${{name}}"></button>`;
-      }}).join("");
-      sw.onclick = async (ev) => {{
-        const btn = ev.target.closest(".flame-swatch");
-        if (!btn || wallFireBusy[hostId]) return;
-        wallFireBusy[hostId] = true;
-        try {{
-          const cfg = await saveWallFireConfig(hostId, {{ preset: btn.dataset.preset }});
-          renderWallFire(hostId, cfg);
-          showToast(`${{hostId}} ${{modeLabel}} → ${{btn.dataset.preset}}`);
-        }} catch (e) {{
-          showToast(String(e.message || e));
-        }} finally {{
-          wallFireBusy[hostId] = false;
-        }}
-      }};
-
-      const introEl = document.querySelector(`[data-fire-intro="${{hostId}}"]`);
-      if (introEl) {{
-        introEl.innerHTML = `<span class="hint" style="flex:1 1 100%;margin:0 0 0.15rem;font-size:0.75rem">Intro when switching to this mode</span>` +
-          (data.intro_labels || []).map((label, idx) =>
-            `<button type="button" class="${{idx === (data.intro ?? 0) ? "active" : ""}}" data-intro="${{idx}}">${{label}}</button>`
-          ).join("");
-        introEl.onclick = async (ev) => {{
-          const btn = ev.target.closest("button[data-intro]");
-          if (!btn || wallFireBusy[hostId]) return;
-          wallFireBusy[hostId] = true;
-          try {{
-            renderWallFire(hostId, await saveWallFireConfig(hostId, {{ intro: Number(btn.dataset.intro) }}));
-            showToast(`${{hostId}} ${{modeLabel}} intro · ${{btn.textContent}}`);
-          }} catch (e) {{
-            showToast(String(e.message || e));
-          }} finally {{
-            wallFireBusy[hostId] = false;
-          }}
-        }};
-      }}
-
-      if (intEl) {{
-        const activeIntensity = data.intensity ?? 0;
-        const gain = data.output_gain != null ? ` · ${{Math.round(data.output_gain * 100)}}%` : "";
-        intEl.innerHTML = FIRE_INTENSITY_LABELS.map((label, idx) =>
-          `<button type="button" class="${{idx === activeIntensity ? "active" : ""}}" data-intensity="${{idx}}">${{label}}</button>`
-        ).join("") + `<span class="hint" style="flex:1 1 100%;margin:0.2rem 0 0;font-size:0.75rem">${{data.height_px || "—"}}px${{gain}}</span>`;
-        intEl.onclick = async (ev) => {{
-          const btn = ev.target.closest("button[data-intensity]");
-          if (!btn || wallFireBusy[hostId]) return;
-          wallFireBusy[hostId] = true;
-          try {{
-            const cfg = await saveWallFireConfig(hostId, {{ intensity: Number(btn.dataset.intensity) }});
-            renderWallFire(hostId, cfg);
-            showToast(`${{hostId}} ${{modeLabel}} → ${{FIRE_INTENSITY_LABELS[cfg.intensity ?? 0]}}`);
-          }} catch (e) {{
-            showToast(String(e.message || e));
-          }} finally {{
-            wallFireBusy[hostId] = false;
-          }}
-        }};
-      }}
-
-      if (rotEl) {{
-        const labels = data.color_rotate_labels || COLOR_ROTATE_LABELS;
-        const active = data.color_rotate_speed ?? 0;
-        rotEl.innerHTML = `<span class="hint" style="flex:1 1 100%;margin:0 0 0.15rem;font-size:0.75rem">Color cycle</span>` +
-          labels.map((label, idx) =>
-            `<button type="button" class="${{idx === active ? "active" : ""}}" data-rotate-speed="${{idx}}">${{label}}</button>`
-          ).join("");
-        rotEl.onclick = async (ev) => {{
-          const btn = ev.target.closest("button[data-rotate-speed]");
-          if (!btn || wallFireBusy[hostId]) return;
-          wallFireBusy[hostId] = true;
-          try {{
-            const cfg = await saveWallFireConfig(hostId, {{ color_rotate_speed: Number(btn.dataset.rotateSpeed) }});
-            renderWallFire(hostId, cfg);
-            showToast(`${{hostId}} ${{modeLabel}} color cycle · ${{labels[cfg.color_rotate_speed ?? 0]}}`);
-          }} catch (e) {{
-            showToast(String(e.message || e));
-          }} finally {{
-            wallFireBusy[hostId] = false;
-          }}
-        }};
-      }}
-
-      if (stops) {{
-        const stopDefs = [
-          ["core", "Core"],
-          ["mid", "Mid"],
-          ["tip", "Tip"],
-        ];
-        stops.innerHTML = stopDefs.map(([key, label]) => `
-          <label class="flame-stop">
-            <span>${{label}}</span>
-            <input type="color" data-stop="${{key}}" value="${{rgbToHex(data[key] || [255,90,0])}}">
-          </label>`).join("");
-        stops.querySelectorAll("input[data-stop]").forEach(inp => {{
-          inp.addEventListener("change", async () => {{
-            if (wallFireBusy[hostId]) return;
-            wallFireBusy[hostId] = true;
-            const hex = inp.value;
-            const rgb = [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
-            try {{
-              const patch = {{}};
-              patch[inp.dataset.stop] = rgb;
-              const cfg = await saveWallFireConfig(hostId, patch);
-              renderWallFire(hostId, cfg);
-              showToast(`${{hostId}} ${{modeLabel}} ${{inp.dataset.stop}} updated`);
-            }} catch (e) {{
-              showToast(String(e.message || e));
-            }} finally {{
-              wallFireBusy[hostId] = false;
-            }}
-          }});
-        }});
-      }}
     }}
 
     const wallStarBusy = {{}};
@@ -1585,7 +1359,6 @@ def dashboard() -> str:
           renderHost(host);
         }}
 
-        updateWallFirePanels(health.hosts);
         updateWallStarPanels(health.hosts);
         updateWallRainPanels(health.hosts);
         updateWallEffectPanels(health.hosts);
@@ -1601,14 +1374,6 @@ def dashboard() -> str:
           if (mode === "matrix_rain") {{
             try {{
               renderWallRain(hostId, await loadWallRainConfig(hostId));
-            }} catch (e) {{
-              console.error(e);
-            }}
-          }}
-          if (mode === "flame" || mode === "lava") {{
-            try {{
-              const cfg = await loadWallFireConfig(hostId, mode);
-              if (cfg) renderWallFire(hostId, cfg);
             }} catch (e) {{
               console.error(e);
             }}

@@ -44,7 +44,7 @@ wall, each wall driven by a **Raspberry Pi 4 + Electrodragon** HUB75 board;
 | **World clock** | Multiple time zones (compact BDF layout built-in; optional large-wall renderer via `repo_urls.world_clock`) |
 | **Analog clock** | Face with sweeping second hand |
 | **Game of Life** | Full-panel Conway simulation |
-| **Fire & smoke / Lava** | Procedural fire (sparse or dense); colour themes, intensity, intro (natural / slow build / instant) |
+| **Fire & smoke / Lava** | Procedural fire (sparse or dense); colour themes, separate height / activity / brightness, colour cycle, intro (natural / slow build / instant) |
 | **Starfield** | Win95-style fly-through; colour modes, night intensity, fine or classic stars, motion trails, hyperspace jumps |
 | **Matrix rain** | Falling glyphs; colour presets or custom colour, four speeds |
 | **Rainbow** | Diagonal colour bands; palettes, direction, speed, brightness |

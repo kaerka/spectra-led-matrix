@@ -1,4 +1,4 @@
-"""Shared settings for procedural effects (rainbow, sparkle, lava lamp).
+"""Shared settings for procedural effects (fire, lava, rainbow, sparkle, ...).
 
 Each effect declares its palettes, custom colour slots and option button rows;
 the web UIs build their controls from ``effect_config_for_api`` so a new effect
@@ -9,7 +9,18 @@ needs no new panel code. Stored in ``mode_config[mode_id]`` as
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple
+
+from display.modes.color_rotate import COLOR_ROTATE_LABELS
+from display.modes.flame_config import (
+    ACTIVITY_LABELS,
+    DEFAULT_THEME,
+    FIRE_COLOR_LABELS,
+    FIRE_PALETTES,
+    HEIGHT_LABELS,
+    INTRO_LABELS,
+    migrate_fire_config,
+)
 
 Color = Tuple[int, int, int]
 
@@ -48,7 +59,37 @@ def _brightness(default: int = 3) -> EffectOption:
     return EffectOption("brightness", "Brightness", BRIGHTNESS_LABELS, default)
 
 
+def _fire_options() -> Tuple[EffectOption, ...]:
+    return (
+        EffectOption("height", "Height", HEIGHT_LABELS, 2),
+        EffectOption("activity", "Activity", ACTIVITY_LABELS, 1),
+        _brightness(2),
+        EffectOption("color_rotate_speed", "Color cycle", COLOR_ROTATE_LABELS, 0),
+        EffectOption("intro", "Intro", INTRO_LABELS, 0),
+    )
+
+
 EFFECTS: Dict[str, EffectSpec] = {
+    "flame": EffectSpec(
+        mode_id="flame",
+        title="Fire & smoke",
+        hint="Flickering tongues of flame; height, activity and brightness are independent.",
+        palettes=FIRE_PALETTES,
+        default_palette=DEFAULT_THEME,
+        color_labels=FIRE_COLOR_LABELS,
+        options=_fire_options(),
+        gains=(0.10, 0.35, 0.60, 0.90),
+    ),
+    "lava": EffectSpec(
+        mode_id="lava",
+        title="Lava",
+        hint="Dense glowing heat field; height, activity and brightness are independent.",
+        palettes=FIRE_PALETTES,
+        default_palette=DEFAULT_THEME,
+        color_labels=FIRE_COLOR_LABELS,
+        options=_fire_options(),
+        gains=(0.10, 0.30, 0.50, 0.70),
+    ),
     "rainbow": EffectSpec(
         mode_id="rainbow",
         title="Rainbow",
@@ -499,6 +540,12 @@ EFFECTS: Dict[str, EffectSpec] = {
 
 EFFECT_MODE_IDS: Tuple[str, ...] = tuple(EFFECTS)
 
+# Rewrites an older saved config into effect keys before it is resolved.
+_MIGRATIONS: Dict[str, Callable[[Optional[dict]], dict]] = {
+    "flame": migrate_fire_config,
+    "lava": migrate_fire_config,
+}
+
 
 @dataclass(frozen=True)
 class EffectSettings:
@@ -551,7 +598,8 @@ def sample_cyclic(stops: Sequence[Color], count: int) -> Tuple[Color, ...]:
 
 def resolve_effect(mode_id: str, config: Optional[dict]) -> EffectSettings:
     spec = EFFECTS[mode_id]
-    cfg = dict(config or {})
+    migrate = _MIGRATIONS.get(mode_id)
+    cfg = migrate(config) if migrate else dict(config or {})
     custom = _custom_colors(spec, cfg.get("colors"))
     if custom is not None:
         palette, stops = None, custom

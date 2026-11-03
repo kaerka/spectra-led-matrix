@@ -22,12 +22,6 @@ from display.messages.store import (
     set_preview,
 )
 from display.modes.effect_config import EFFECT_MODE_IDS, effect_config_for_api, validate_effect_patch
-from display.modes.flame_config import (
-    FLAME_PRESETS,
-    INTRO_LABELS,
-    flame_config_for_api,
-    lava_config_for_api,
-)
 from display.modes.matrix_rain_config import (
     MAX_SPEED as RAIN_MAX_SPEED,
     RAIN_PRESETS,
@@ -71,38 +65,6 @@ class StateResponse(BaseModel):
     mode_config: Optional[dict] = None
     updated_at: float | None
     modes: List[ModeSummary]
-
-
-class FireConfigResponse(BaseModel):
-    profile: Optional[str] = None
-    preset: Optional[str] = None
-    intensity: int = 0
-    panel_rows: int = 3
-    height_px: int = 0
-    output_gain: float = 1.0
-    damping: float = 0.97
-    core: List[int]
-    mid: List[int]
-    tip: List[int]
-    ember: List[int]
-    colors: List[List[int]]
-    presets: List[str]
-    color_rotate_speed: int = 0
-    color_rotate_labels: List[str] = []
-    color_rotate_hz: float = 0.0
-    intro: int = 0
-    intro_labels: List[str] = []
-
-
-class FireConfigRequest(BaseModel):
-    preset: Optional[str] = None
-    intensity: Optional[int] = None
-    core: Optional[List[int]] = None
-    mid: Optional[List[int]] = None
-    tip: Optional[List[int]] = None
-    ember: Optional[List[int]] = None
-    color_rotate_speed: Optional[int] = None
-    intro: Optional[int] = None
 
 
 class StarfieldConfigResponse(BaseModel):
@@ -149,11 +111,6 @@ class MatrixRainConfigRequest(BaseModel):
     preset: Optional[str] = None
     color: Optional[List[int]] = None
     speed: Optional[int] = None
-
-
-# Back-compat aliases for older imports / mental model.
-FlameConfigResponse = FireConfigResponse
-FlameConfigRequest = FireConfigRequest
 
 
 class MediaSelectRequest(BaseModel):
@@ -317,16 +274,6 @@ def control_panel() -> str:
     {"".join(cards)}
   </div>
 
-  <div class="flame-panel" id="fire-panel" style="display:none">
-    <h2 id="fire-panel-title" style="margin:0 0 0.35rem;font-size:1rem;color:#e8eaed">Fire colors</h2>
-    <p class="hint" id="fire-panel-hint" style="margin:0">Preset themes or tune core / mid / tip (this display only).</p>
-    <div class="flame-swatches" id="fire-swatches"><em>Loading…</em></div>
-    <div class="flame-intensity" id="fire-intensity"></div>
-    <div class="flame-intensity" id="fire-rotate" style="margin-top:0.45rem"></div>
-    <div class="flame-intensity" id="fire-intro" style="margin-top:0.45rem"></div>
-    <div class="flame-stops" id="fire-stops"></div>
-  </div>
-
   <div class="flame-panel" id="starfield-panel" style="display:none">
     <h2 style="margin:0 0 0.35rem;font-size:1rem;color:#e8eaed">Starfield</h2>
     <p class="hint" style="margin:0">Win95-style fly-through. Night = sparse &amp; dim. Color mode + palette (this display only).</p>
@@ -401,29 +348,16 @@ def control_panel() -> str:
       activeEl.textContent = modeId;
       document.querySelectorAll(".mode-btn").forEach(b =>
         b.classList.toggle("active", b.dataset.mode === modeId));
-      const firePanel = document.getElementById("fire-panel");
       const starPanel = document.getElementById("starfield-panel");
-      const isFire = modeId === "flame" || modeId === "lava";
       const isStar = modeId === "starfield";
       const rainPanel = document.getElementById("rain-panel");
       const isRain = modeId === "matrix_rain";
-      if (firePanel) firePanel.style.display = isFire ? "" : "none";
       if (starPanel) starPanel.style.display = isStar ? "" : "none";
       if (rainPanel) rainPanel.style.display = isRain ? "" : "none";
       if (isRain) loadRainConfig();
       const isEffect = EFFECT_MODES.includes(modeId);
       document.getElementById("effect-panel").style.display = isEffect ? "" : "none";
       if (isEffect) loadEffectConfig(modeId);
-      if (isFire) {{
-        currentFireMode = modeId;
-        const title = document.getElementById("fire-panel-title");
-        const hint = document.getElementById("fire-panel-hint");
-        if (title) title.textContent = modeId === "lava" ? "Lava colors" : "Fire & smoke colors";
-        if (hint) hint.textContent = modeId === "lava"
-          ? "Dense heat field (~70% brightness). Night = 1.5 panels @ 10%."
-          : "Sparse fire. Night = 1.5 panels @ 10%.";
-        loadFireConfig(modeId);
-      }}
       if (isStar) loadStarfieldConfig();
     }}
 
@@ -544,203 +478,10 @@ def control_panel() -> str:
 
     loadMqtt();
 
-    const fireSwatches = document.getElementById("fire-swatches");
-    const fireIntensity = document.getElementById("fire-intensity");
-    const fireRotate = document.getElementById("fire-rotate");
-    const fireStops = document.getElementById("fire-stops");
-    let fireBusy = false;
-    let currentFireMode = "flame";
-
-    const INTENSITY_LABELS = ["Night (dim)", "1 panel", "2 panels", "Full (3)"];
     const ROTATE_LABELS = ["Off", "Slow", "Medium", "Fast"];
-
-    const fireIntro = document.getElementById("fire-intro");
-
-    function renderFireAll(cfg) {{
-      renderFireSwatches(cfg);
-      renderFireIntensity(cfg);
-      renderFireRotate(cfg);
-      renderFireIntro(cfg);
-      renderFireStops(cfg);
-    }}
-
-    function renderFireIntro(data) {{
-      if (!fireIntro) return;
-      const labels = data.intro_labels || [];
-      fireIntro.innerHTML = `<span class="hint" style="flex:1 1 100%;margin:0 0 0.2rem">Intro when switching to this mode</span>` +
-        labels.map((label, idx) =>
-          `<button type="button" class="${{idx === (data.intro ?? 0) ? "active" : ""}}" data-intro="${{idx}}">${{label}}</button>`
-        ).join("");
-      fireIntro.onclick = async (ev) => {{
-        const btn = ev.target.closest("button[data-intro]");
-        if (!btn || fireBusy) return;
-        fireBusy = true;
-        try {{
-          const res = await fetch(`/api/mode/${{currentFireMode}}/config`, {{
-            method: "PUT",
-            headers: {{ "Content-Type": "application/json" }},
-            body: JSON.stringify({{ intro: Number(btn.dataset.intro) }}),
-          }});
-          if (!res.ok) throw new Error("update failed");
-          renderFireAll(await res.json());
-          showToast(`${{currentFireMode}} intro · ${{btn.textContent}}`);
-        }} catch (e) {{
-          showToast("Failed to set intro");
-        }} finally {{
-          fireBusy = false;
-        }}
-      }};
-    }}
-
-    function renderFireRotate(data) {{
-      if (!fireRotate) return;
-      const labels = data.color_rotate_labels || ROTATE_LABELS;
-      const active = data.color_rotate_speed ?? 0;
-      fireRotate.innerHTML = `<span class="hint" style="flex:1 1 100%;margin:0 0 0.2rem">Color cycle</span>` +
-        labels.map((label, idx) =>
-          `<button type="button" class="${{idx === active ? "active" : ""}}" data-rotate-speed="${{idx}}">${{label}}</button>`
-        ).join("");
-      fireRotate.querySelectorAll("button[data-rotate-speed]").forEach(btn => {{
-        btn.addEventListener("click", async () => {{
-          if (fireBusy) return;
-          fireBusy = true;
-          try {{
-            const res = await fetch(`/api/mode/${{currentFireMode}}/config`, {{
-              method: "PUT",
-              headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify({{ color_rotate_speed: Number(btn.dataset.rotateSpeed) }}),
-            }});
-            if (!res.ok) throw new Error("update failed");
-            const cfg = await res.json();
-            renderFireAll(cfg);
-            showToast(`${{currentFireMode}} color cycle · ${{labels[cfg.color_rotate_speed ?? 0]}}`);
-          }} catch (e) {{
-            showToast("Failed to set color cycle");
-          }} finally {{
-            fireBusy = false;
-          }}
-        }});
-      }});
-    }}
-
-    function renderFireIntensity(data) {{
-      if (!fireIntensity) return;
-      const active = data.intensity ?? 0;
-      const gain = data.output_gain != null ? ` · ${{Math.round(data.output_gain * 100)}}%` : "";
-      fireIntensity.innerHTML = INTENSITY_LABELS.map((label, idx) =>
-        `<button type="button" class="${{idx === active ? "active" : ""}}" data-intensity="${{idx}}">${{label}}</button>`
-      ).join("") + `<span class="hint" style="flex:1 1 100%;margin:0.25rem 0 0">Height ${{data.height_px || "—"}}px${{gain}}</span>`;
-      fireIntensity.querySelectorAll("button[data-intensity]").forEach(btn => {{
-        btn.addEventListener("click", async () => {{
-          if (fireBusy) return;
-          fireBusy = true;
-          try {{
-            const res = await fetch(`/api/mode/${{currentFireMode}}/config`, {{
-              method: "PUT",
-              headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify({{ intensity: Number(btn.dataset.intensity) }}),
-            }});
-            if (!res.ok) throw new Error("update failed");
-            const cfg = await res.json();
-            renderFireAll(cfg);
-            showToast(`${{currentFireMode}} · ${{INTENSITY_LABELS[cfg.intensity ?? 0]}}`);
-          }} catch (e) {{
-            showToast("Failed to set intensity");
-          }} finally {{
-            fireBusy = false;
-          }}
-        }});
-      }});
-    }}
 
     function rgbToHex([r, g, b]) {{
       return "#" + [r, g, b].map(v => v.toString(16).padStart(2, "0")).join("");
-    }}
-
-    function renderFireStops(data) {{
-      if (!fireStops) return;
-      const stops = [
-        ["core", "Core (hot)"],
-        ["mid", "Mid"],
-        ["tip", "Tip (bright)"],
-      ];
-      fireStops.innerHTML = stops.map(([key, label]) => `
-        <label class="flame-stop">
-          <span>${{label}}</span>
-          <input type="color" data-fire-stop="${{key}}" value="${{rgbToHex(data[key])}}">
-        </label>`).join("");
-      fireStops.querySelectorAll("input[data-fire-stop]").forEach(inp => {{
-        inp.addEventListener("change", async () => {{
-          if (fireBusy) return;
-          fireBusy = true;
-          const hex = inp.value;
-          const rgb = [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
-          try {{
-            const body = {{}};
-            body[inp.dataset.fireStop] = rgb;
-            const res = await fetch(`/api/mode/${{currentFireMode}}/config`, {{
-              method: "PUT",
-              headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify(body),
-            }});
-            if (!res.ok) throw new Error("update failed");
-            const cfg = await res.json();
-            renderFireAll(cfg);
-            showToast(`${{currentFireMode}} ${{inp.dataset.fireStop}} updated`);
-          }} catch (e) {{
-            showToast("Failed to set color");
-          }} finally {{
-            fireBusy = false;
-          }}
-        }});
-      }});
-    }}
-
-    function renderFireSwatches(data) {{
-      if (!fireSwatches) return;
-      const activePreset = data.preset || null;
-      fireSwatches.innerHTML = (data.presets || []).map(name => {{
-        const rgb = {{
-          orange: "#ff5a00", red: "#ff2800", yellow: "#ffc800",
-          blue: "#2878ff", green: "#28ff50", purple: "#b428ff",
-          cyan: "#00dcff", magenta: "#ff00b4", white: "#ffffff",
-        }}[name] || "#ff5a00";
-        const active = name === activePreset ? " active" : "";
-        return `<button type="button" class="flame-swatch${{active}}" data-preset="${{name}}"
-                style="background:${{rgb}}" title="${{name}}"><span>${{name}}</span></button>`;
-      }}).join("");
-      fireSwatches.querySelectorAll(".flame-swatch").forEach(btn => {{
-        btn.addEventListener("click", async () => {{
-          if (fireBusy) return;
-          fireBusy = true;
-          try {{
-            const res = await fetch(`/api/mode/${{currentFireMode}}/config`, {{
-              method: "PUT",
-              headers: {{ "Content-Type": "application/json" }},
-              body: JSON.stringify({{ preset: btn.dataset.preset }}),
-            }});
-            if (!res.ok) throw new Error("update failed");
-            const cfg = await res.json();
-            renderFireAll(cfg);
-            showToast(`${{currentFireMode}} theme: ${{btn.dataset.preset}}`);
-          }} catch (e) {{
-            showToast("Failed to set theme");
-          }} finally {{
-            fireBusy = false;
-          }}
-        }});
-      }});
-    }}
-
-    async function loadFireConfig(modeId) {{
-      currentFireMode = modeId || currentFireMode;
-      try {{
-        const res = await fetch(`/api/mode/${{currentFireMode}}/config`);
-        if (!res.ok) return;
-        renderFireAll(await res.json());
-      }} catch (e) {{
-        console.error(e);
-      }}
     }}
 
     const starIntensity = document.getElementById("star-intensity");
@@ -1245,45 +986,6 @@ def api_set_effect_config(mode_id: str, body: dict = Body(...)) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     set_mode_config(mode_id, patch)
     return _effect_response(mode_id)
-
-
-@app.get("/api/mode/{mode_id}/config", response_model=FireConfigResponse)
-def api_get_fire_config(mode_id: str) -> FireConfigResponse:
-    if mode_id not in ("flame", "lava"):
-        raise HTTPException(status_code=404, detail="Unknown fire mode config")
-    return _fire_config_response(mode_id)
-
-
-@app.put("/api/mode/{mode_id}/config", response_model=FireConfigResponse)
-def api_set_fire_config(mode_id: str, body: FireConfigRequest) -> FireConfigResponse:
-    if mode_id not in ("flame", "lava"):
-        raise HTTPException(status_code=404, detail="Unknown fire mode config")
-    if body.preset is not None and body.preset not in FLAME_PRESETS:
-        raise HTTPException(status_code=400, detail=f"Unknown preset: {body.preset}")
-    if body.intensity is not None and not 0 <= body.intensity <= 3:
-        raise HTTPException(status_code=400, detail="intensity must be 0–3")
-    if body.color_rotate_speed is not None and not 0 <= body.color_rotate_speed <= 3:
-        raise HTTPException(status_code=400, detail="color_rotate_speed must be 0–3")
-    if body.intro is not None and not 0 <= body.intro < len(INTRO_LABELS):
-        raise HTTPException(status_code=400, detail=f"intro must be 0–{len(INTRO_LABELS) - 1}")
-    for field in ("core", "mid", "tip", "ember"):
-        _validate_rgb_field(field, getattr(body, field))
-    if not body.model_dump(exclude_none=True):
-        raise HTTPException(
-            status_code=400,
-            detail="Provide preset, intensity, color_rotate_speed, intro, and/or color stops",
-        )
-    patch = body.model_dump(exclude_none=True)
-    set_mode_config(mode_id, patch)
-    return _fire_config_response(mode_id)
-
-
-def _fire_config_response(mode_id: str) -> FireConfigResponse:
-    state = load_state()
-    cfg = (state.mode_config or {}).get(mode_id) if state.mode_config else None
-    cfg_dict = cfg if isinstance(cfg, dict) else {}
-    data = flame_config_for_api(cfg_dict) if mode_id == "flame" else lava_config_for_api(cfg_dict)
-    return FireConfigResponse(**data)
 
 
 @app.get("/api/mqtt", response_model=MqttOverlayResponse)

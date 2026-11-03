@@ -91,23 +91,6 @@ class MatrixHostClient:
             headers={"Content-Type": "application/json"},
         )
 
-    def get_flame_config(self) -> HostResult:
-        return self.get_fire_config("flame")
-
-    def set_flame_config(self, payload: dict[str, Any]) -> HostResult:
-        return self.set_fire_config("flame", payload)
-
-    def get_fire_config(self, mode_id: str) -> HostResult:
-        return self._request("GET", f"/api/mode/{mode_id}/config")
-
-    def set_fire_config(self, mode_id: str, payload: dict[str, Any]) -> HostResult:
-        return self._request(
-            "PUT",
-            f"/api/mode/{mode_id}/config",
-            json=payload,
-            headers={"Content-Type": "application/json"},
-        )
-
     def get_starfield_config(self) -> HostResult:
         return self._request("GET", "/api/mode/starfield/config")
 

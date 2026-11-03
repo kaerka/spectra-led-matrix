@@ -3,12 +3,16 @@
   "media_path": null,
   "mode_config": {
     "flame": {
-      "preset": "orange",
-      "intensity": 0
+      "palette": "orange",
+      "height": 2,
+      "activity": 1,
+      "brightness": 2
     },
     "lava": {
-      "preset": "orange",
-      "intensity": 0
+      "palette": "orange",
+      "height": 2,
+      "activity": 1,
+      "brightness": 2
     },
     "starfield": {
       "preset": "classic",

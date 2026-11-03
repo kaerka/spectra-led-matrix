@@ -240,13 +240,13 @@ MODES: Dict[str, ModeInfo] = {
     "flame": ModeInfo(
         id="flame",
         label="Fire & smoke",
-        description="Embers and drifting fire — per-display color themes; intensity 0–3.",
+        description="Embers and drifting fire — color themes; separate height, activity and brightness.",
         factory=_flame_mode,
     ),
     "lava": ModeInfo(
         id="lava",
         label="Lava",
-        description="Dense heat / lava field — softer on the PSU at ~70% gain.",
+        description="Dense heat / lava field — High brightness capped at 70% for the PSU.",
         factory=_lava_mode,
     ),
     "starfield": ModeInfo(

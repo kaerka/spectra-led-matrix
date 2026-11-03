@@ -9,25 +9,16 @@ import numpy as np
 from PIL import Image
 
 from display.matrix_config import CANVAS_H, CANVAS_W
-from display.modes.color_rotate import (
-    color_rotate_hz,
-    hue_shift_colors,
-    resolve_color_rotate_speed,
-)
+from display.modes.color_rotate import color_rotate_hz, hue_shift_colors
+from display.modes.effect_config import resolve_effect
 from display.modes.flame_config import (
     SLOW_BUILD_S,
     FireProfile,
     build_fire_palette_lut,
-    resolve_fire_intro,
+    fire_palette,
     resolve_fire_damping,
-    resolve_fire_heat_scale,
-    resolve_fire_height_px,
-    resolve_fire_intensity,
-    resolve_fire_output_gain,
-    resolve_fire_palette,
-    resolve_fire_seed_density,
-    resolve_fire_seed_heat,
-    resolve_fire_turbulence,
+    resolve_fire_physics,
+    resolve_height_px,
 )
 from display.pillow_compat import set_pillow_image
 from display.state import load_state
@@ -132,7 +123,7 @@ class FireMode:
             turbulence=self._turbulence,
             seed_density=self._seed_density,
         )
-        self._sim.set_max_height(self._max_height_px)
+        self._sim.set_max_height(self._max_height_px + int(np.ceil(self._fade_band * 0.6)))
         self._rgb = np.zeros((self._display_h, self._display_w, 3), dtype=np.uint8)
         self._elapsed = 0.0
         kept = FireMode._handoff
@@ -156,25 +147,45 @@ class FireMode:
         FireMode._handoff = (self.mode_id, time.monotonic(), self._sim.heat)
 
     def _apply_config(self, config: Optional[dict]) -> None:
-        cfg = dict(config or {})
-        profile = self.profile
-        self._base_palette = resolve_fire_palette(cfg)
-        self._rotate_speed = resolve_color_rotate_speed(cfg)
-        self._rotate_hz = color_rotate_hz(self._rotate_speed)
+        settings = resolve_effect(self.mode_id, config)
+        values = settings.values
+        self._base_palette = fire_palette(settings.stops)
+        self._rotate_hz = color_rotate_hz(values["color_rotate_speed"])
         self._hue_phase = 0.0
         self._rebuild_lut(0.0)
-        self._intensity = resolve_fire_intensity(cfg)
-        base_damping = float(cfg.get("damping", 0.97))
+        self._max_height_px = resolve_height_px(values["height"], self._display_h)
         self._damping_factor = resolve_fire_damping(
-            profile, self._intensity, self._display_h, base_damping
+            self.profile, values["activity"], self._max_height_px
         )
-        self._seed_heat = resolve_fire_seed_heat(profile, self._intensity)
-        self._turbulence = resolve_fire_turbulence(profile, self._intensity)
-        self._heat_scale = resolve_fire_heat_scale(profile, self._intensity)
-        self._seed_density = resolve_fire_seed_density(profile, self._intensity)
-        self._output_gain = resolve_fire_output_gain(profile, self._intensity)
-        self._max_height_px = resolve_fire_height_px(self._intensity, self._display_h)
-        self._intro = resolve_fire_intro(cfg)
+        physics = resolve_fire_physics(self.profile, values["activity"])
+        self._seed_heat = physics["seed_heat"]
+        self._turbulence = physics["turbulence"]
+        self._heat_scale = physics["heat_scale"]
+        self._seed_density = physics["seed_density"]
+        self._sim_rate = physics["sim_rate"]
+        self._sim_debt = 0.0
+        self._output_gain = settings.gain
+        self._intro = values["intro"]
+        self._frame = 0
+        self._cutoff = self._display_h - self._max_height_px
+        self._fade_band = max(4.0, self._max_height_px * 0.12)
+        # Rows the wandering edge can reach: wobble is ±0.6 band around the cap.
+        self._fade_lo = max(0, int(self._cutoff - 0.6 * self._fade_band))
+        self._fade_hi = min(self._display_h, int(np.ceil(self._cutoff + 1.6 * self._fade_band)))
+        self._fade_rows = np.arange(self._fade_lo, self._fade_hi, dtype=np.float32)[:, None]
+        cols = np.arange(self._display_w, dtype=np.float32)
+        self._fade_cols = (cols * (2 * np.pi / 97.0), cols * (2 * np.pi / 41.0))
+
+    def _apply_top_fade(self, colors: np.ndarray) -> None:
+        """Soft, slowly wandering top edge just below the Height cap."""
+        if self._cutoff <= 0:
+            return
+        t = self._frame * self.tick_interval
+        slow, fast = self._fade_cols
+        wobble = (np.sin(slow + t * 0.35) + 0.5 * np.sin(fast - t * 0.6)) * (self._fade_band * 0.4)
+        fade = np.clip((self._fade_rows - self._cutoff - wobble[None, :]) / self._fade_band, 0.0, 1.0)
+        colors[: self._fade_lo] = 0.0
+        colors[self._fade_lo : self._fade_hi] *= (fade * fade)[:, :, None]
 
     def _apply_intro(self) -> None:
         if self._intro != 1 or self._elapsed >= SLOW_BUILD_S:
@@ -201,6 +212,7 @@ class FireMode:
         view = self._sim.heat[1 : self._display_w + 1, : self._display_h]
         idx = np.clip((view * self._heat_scale).astype(np.int32), 0, 255)
         colors = np.transpose(self._lut[idx], (1, 0, 2)).astype(np.float32)
+        self._apply_top_fade(colors)
         if self._output_gain < 1.0:
             colors *= self._output_gain
         self._rgb[:] = np.clip(colors, 0, 255).astype(np.uint8)
@@ -210,7 +222,11 @@ class FireMode:
     def tick(self, matrix, canvas):
         self._advance_color_rotate()
         self._apply_intro()
-        self._sim.update()
+        self._sim_debt += self._sim_rate
+        while self._sim_debt >= 1.0:
+            self._sim.update()
+            self._sim_debt -= 1.0
+        self._frame += 1
         frame = self._render()
         set_pillow_image(canvas, frame)
         return matrix.SwapOnVSync(canvas)
